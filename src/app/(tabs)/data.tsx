@@ -737,7 +737,7 @@ export default function DataScreen() {
           onRequestClose={() => setEditModalVisible(false)}
         >
           <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(18, 16, 14, 0.85)' }}
           >
             <View style={{ backgroundColor: C.surface, borderTopWidth: 1, borderColor: C.border, borderTopLeftRadius: 36, borderTopRightRadius: 36, padding: 24, paddingBottom: 48 }}>
@@ -802,7 +802,7 @@ export default function DataScreen() {
           onRequestClose={() => setAddWalletModalVisible(false)}
         >
           <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(18, 16, 14, 0.85)' }}
           >
             <View style={{ backgroundColor: C.surface, borderTopWidth: 1, borderColor: C.border, borderTopLeftRadius: 36, borderTopRightRadius: 36, padding: 24, paddingBottom: 48 }}>
