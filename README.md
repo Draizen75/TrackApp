@@ -1,56 +1,76 @@
-# Welcome to your Expo app 👋
+# TrackApp 🪙
+> A high-fidelity, premium mobile ledger and counter-float management application for Sari-Sari store merchants.
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+TrackApp is built using **Expo SDK 56**, **React Native**, and **TypeScript**, with native persistence powered by **Expo SQLite** and Web/Preview environments managed via a synchronized **localStorage mock engine**. The visual design follows a **Warm Architectural & Premium Fintech Aesthetic** (glassmorphism, slate-charcoal bases, warm amber accents, haptic feedback, and responsive layout scaling).
 
-## Get started
+---
 
-1. Install dependencies
+## 🌟 Key Features
 
-   ```bash
-   npm install
-   ```
+### 1. Counter Float Management & Dashboard
+*   **Hero KPI Panel**: Displays **True Net Profit** with detailed sub-descriptions, alongside gross fees collected, store expenses incurred, and outstanding customer debt (lends/credit) in an aligned column grid.
+*   **Responsive Allocation Analytics**: Features a responsive donut chart visualization showing the float distribution across all registered payment channels.
+*   **Fast Log Shortcuts**: Direct click actions next to recent transactions allow merchants to edit logs instantly or revert balance impacts.
 
-2. Start the app
+### 2. Dynamic Custom Wallets & Hashed Brand Colors
+*   **Wallet Registration**: Register custom wallets and bank accounts (e.g. BDO, BPI, ShopeePay) with custom initial balances.
+*   **Deterministic Coloring**: Custom wallets are dynamically assigned high-contrast brand colors (Violet, Crimson, Cyan, Pink, Indigo, Orange, Teal, Emerald, Lime, Magenta) hashed deterministically from their names. This color identity propagates across all statistics screens, list borders, and float allocation charts.
+*   **Reference Guarded Deletion**: Custom wallets can be deleted only if they do not contain any linked transactions or expenses, preventing ledger data corruption.
 
-   ```bash
-   npx expo start
-   ```
+### 3. Smart Debtors & Settle Ledger System
+*   **Active vs Settled Divisions**: Split customer credit lists into outstanding debts and settled accounts.
+*   **Itemized Statement Statements**: View a customer's detailed statement ledger history with precise date stamps and channel references.
+*   **Profile Deletion**: Settled customers with a `₱0.00` balance can be permanently deleted to clean up the database. Past transaction histories associated with them remain as anonymous entries in reports.
 
-In the output, you'll find options to open the app in a
+### 4. Mathematical Precision & Deduct Fee Guardrails
+*   **Deduct Fee from Principal**: Handles advanced ledger tracking where service fees are either added on top (`deduct_fee = 0`, client owes `amount + fee`) or subtracted from the payout (`deduct_fee = 1`, client owes only `amount`).
+*   **Negative Balance Guards**: Features native SQLite triggers (`tr_wallet_balance_guard`) and web simulation checks that roll back transactions and throw warnings if a wallet's balance would drop below `₱0.00`.
+*   **Submission Double-Tap Protection**: In-flight submission states discard rapid multi-clicks to prevent duplicate transactions, double payments, or double-deductions.
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+### 5. Seamless Native UX Integrations
+*   **Sliding Toast Notifications**: Replaced blocking alerts with sliding glassmorphic success and warning capsules that animate from the device Safe Area notch.
+*   **Keyboard Avoidance sheets**: All text input sheets (adjusting float balances, registering wallets, paying off debts) are wrapped in `<KeyboardAvoidingView>` containers, resizing modal views above the keyboard.
+*   **Safe Area Bottom Navigation**: The floating tab navigation capsule resizes dynamically based on device safe area insets to stay positioned above native software navigation bars.
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+---
 
-## Get a fresh project
+## 🛠️ Technology Stack
+*   **Framework**: Expo (SDK 56) with Expo Router (v3) file-based routing.
+*   **Language**: TypeScript (ESLint & Expo Lint configured).
+*   **Styling**: Vanilla React Native stylesheet tokens.
+*   **Database**: Native Expo SQLite (`expo-sqlite`) for mobile builds; localStorage mock engine for Web previews.
+*   **Icons**: Lucide React Native (`lucide-react-native`).
+*   **Feedback**: Expo Haptics (`expo-haptics`) impact vibrations.
 
-When you're ready, run:
+---
 
+## 🚀 Getting Started
+
+### 1. Installation
+Clone the repository and install the dependencies:
 ```bash
-npm run reset-project
+npm install
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+### 2. Running Locally (Development Server)
+Start the Expo Metro bundler:
+```bash
+npm run start
+```
+*   Press **`a`** to launch on an Android emulator or connected device.
+*   Press **`i`** to launch on an iOS simulator.
+*   Press **`w`** to open the web-preview browser model.
 
-### Other setup steps
+### 3. Database Management & Backups
+*   **Export Ledger**: Navigate to the Control Center and press **Export & Share CSV Ledger** to compile transaction history.
+*   **Clear Storage**: Reset databases and local caches via **Wipe Database Ledger** inside the Admin panel (requires confirmation).
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+---
 
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## 📁 Directory Structure
+*   `src/app/` — Expo Router file-based screens and layouts.
+*   `src/app/(tabs)/` — Main tab routes (Dashboard, Entry form, Debtors list, Control Center settings).
+*   `src/hooks/` — SQLite and LocalStorage mock database hooks (`useDbQueries.ts`).
+*   `src/db/` — Native SQLite schemas and initialization scripts (`db.ts`).
+*   `src/components/` — Global UI overlays, including the sliding `ToastProvider` (`toast.tsx`).
+*   `assets/` — Brand app assets, including custom golden launcher icons and splash screens.
