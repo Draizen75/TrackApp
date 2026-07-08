@@ -1,4 +1,7 @@
 # TrackApp 🪙
+
+[![Launch with Expo](https://github.com/expo/examples/blob/master/.gh-assets/launch.svg?raw=true)](https://launch.expo.dev/select-repo?repo-url=https://github.com/Draizen75/TrackApp)
+
 > A high-fidelity, premium mobile ledger and counter-float management application for Sari-Sari store merchants.
 
 TrackApp is built using **Expo SDK 56**, **React Native**, and **TypeScript**, with native persistence powered by **Expo SQLite** and Web/Preview environments managed via a synchronized **localStorage mock engine**. The visual design follows a **Warm Architectural & Premium Fintech Aesthetic** (glassmorphism, slate-charcoal bases, warm amber accents, haptic feedback, and responsive layout scaling).
