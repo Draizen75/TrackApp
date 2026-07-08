@@ -1,6 +1,6 @@
 # TrackApp 🪙
 
-[![Launch with Expo](https://github.com/expo/examples/blob/master/.gh-assets/launch.svg?raw=true)](https://launch.expo.dev/select-repo?repo-url=https://github.com/Draizen75/TrackApp.git)
+[![Launch with Expo](https://github.com/expo/examples/blob/master/.gh-assets/launch.svg?raw=true)](https://launch.expo.dev/?github=https://github.com/Draizen75/TrackApp.git)
 
 > A high-fidelity, premium mobile ledger and counter-float management application for Sari-Sari store merchants.
 
