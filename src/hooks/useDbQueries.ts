@@ -208,7 +208,7 @@ const applyTxToWallets = (wallets: any, tx: any, revert = false) => {
       wallets['PHYSICAL_CASH'] = (wallets['PHYSICAL_CASH'] || 0) + amt + fee;
     }
   } else if (tx.type === 'DEBT_PAYMENT') {
-    wallets[tx.channel] = (wallets[tx.channel] || 0) + amt;
+    wallets[tx.channel] = (wallets[tx.channel] || 0) + amt + fee;
   }
 };
 
@@ -468,13 +468,14 @@ function useWebDbQueries() {
 
   const useSettleDebt = () => {
     return useMutation({
-      mutationFn: async ({ customer_id, amount, channel }: { customer_id: number; amount: number; channel: string }) => {
+      mutationFn: async ({ customer_id, amount, channel, profit }: { customer_id: number; amount: number; channel: string; profit?: number }) => {
         const db = getWebDb();
+        const extraProfit = profit || 0;
         const newTx = {
           id: db.transactions.length + 1,
           type: 'DEBT_PAYMENT' as const,
           amount,
-          fee: 0,
+          fee: extraProfit,
           channel,
           customer_id,
           is_debt: 0,
@@ -963,17 +964,21 @@ export function useDbQueries() {
         customer_id,
         amount,
         channel,
+        profit,
       }: {
         customer_id: number;
         amount: number;
         channel: string;
+        profit?: number;
       }) => {
         const createdAt = new Date().toISOString();
+        const extraProfit = profit || 0;
         // A debt payment is recorded as a transaction of type DEBT_PAYMENT
         // It increases the float of the selected channel and decreases the customer's balance.
+        // The `profit` (extra fee) is stored as fee for profit tracking.
         await db.runAsync(
-          "INSERT INTO transactions (type, amount, fee, channel, customer_id, is_debt, created_at) VALUES ('DEBT_PAYMENT', ?, 0.0, ?, ?, 0, ?)",
-          [amount, channel, customer_id, createdAt]
+          "INSERT INTO transactions (type, amount, fee, channel, customer_id, is_debt, created_at) VALUES ('DEBT_PAYMENT', ?, ?, ?, ?, 0, ?)",
+          [amount, extraProfit, channel, customer_id, createdAt]
         );
       },
       onSuccess: () => {

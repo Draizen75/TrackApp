@@ -49,6 +49,7 @@ export default function DebtorsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDebtor, setSelectedDebtor] = useState<Debtor | null>(null);
   const [settleAmount, setSettleAmount] = useState('');
+  const [settleProfit, setSettleProfit] = useState('');
   const [settleChannel, setSettleChannel] = useState<string>('PHYSICAL_CASH');
   const [modalVisible, setModalVisible] = useState(false);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
@@ -80,6 +81,7 @@ export default function DebtorsScreen() {
   const openSettleModal = (debtor: Debtor) => {
     setSelectedDebtor(debtor);
     setSettleAmount(debtor.balance.toString());
+    setSettleProfit('');
     setModalVisible(true);
   };
 
@@ -143,9 +145,12 @@ export default function DebtorsScreen() {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
 
+      const profit = parseFloat(settleProfit) || 0;
+
       await settleMutation.mutateAsync({
         customer_id: selectedDebtor.id,
         amount,
+        profit,
         channel: settleChannel,
       });
 
@@ -665,11 +670,33 @@ export default function DebtorsScreen() {
                   paddingVertical: 14,
                   fontWeight: '700',
                   fontSize: 18,
-                  marginBottom: 16,
+                  marginBottom: 10,
                 }}
                 keyboardType="decimal-pad"
                 value={settleAmount}
                 onChangeText={setSettleAmount}
+                editable={!settleMutation.isPending}
+              />
+
+              <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>Extra Profit (Optional ₱)</Text>
+              <TextInput
+                style={{
+                  backgroundColor: C.bg,
+                  borderWidth: 1,
+                  borderColor: C.border,
+                  color: C.accent,
+                  borderRadius: 16,
+                  paddingHorizontal: 16,
+                  paddingVertical: 12,
+                  fontWeight: '700',
+                  fontSize: 16,
+                  marginBottom: 16,
+                }}
+                keyboardType="decimal-pad"
+                value={settleProfit}
+                onChangeText={setSettleProfit}
+                placeholder="0.00"
+                placeholderTextColor={C.text3}
                 editable={!settleMutation.isPending}
               />
 
