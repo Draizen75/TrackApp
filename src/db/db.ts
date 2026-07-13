@@ -1,5 +1,86 @@
 import * as SQLite from 'expo-sqlite';
 
+type RepairTransactionRow = {
+  id: number;
+  type: 'CASH_IN' | 'CASH_OUT' | 'E_LOAD' | 'TV_LOAD' | 'DEBT_PAYMENT';
+  amount: number;
+  fee: number;
+  customer_id: number | null;
+  is_debt: number;
+  deduct_fee: number;
+  created_at: string;
+};
+
+const DEBT_PAYMENT_REPAIR_KEY = 'debt_payment_customer_repair_v1';
+
+function getDebtDelta(tx: RepairTransactionRow) {
+  if (tx.is_debt === 1) {
+    return (Number(tx.amount) || 0) + (tx.deduct_fee === 1 ? 0 : (Number(tx.fee) || 0));
+  }
+  if (tx.type === 'DEBT_PAYMENT') {
+    return -(Number(tx.amount) || 0);
+  }
+  return 0;
+}
+
+function inferCustomerForPayment(
+  balances: Map<number, number>,
+  amount: number
+) {
+  const candidates = Array.from(balances.entries())
+    .filter(([, balance]) => balance >= amount - 0.01)
+    .map(([customerId]) => customerId);
+
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+async function repairBrokenDebtPayments(db: SQLite.SQLiteDatabase) {
+  const alreadyRepaired = await db.getFirstAsync<{ value: string }>(
+    'SELECT value FROM settings WHERE key = ?',
+    [DEBT_PAYMENT_REPAIR_KEY]
+  );
+
+  if (alreadyRepaired?.value === 'done') {
+    return;
+  }
+
+  const transactions = await db.getAllAsync<RepairTransactionRow>(`
+    SELECT id, type, amount, fee, customer_id, is_debt, deduct_fee, created_at
+    FROM transactions
+    ORDER BY datetime(created_at) ASC, id ASC
+  `);
+
+  const runningBalances = new Map<number, number>();
+  const repairs: Array<{ id: number; customerId: number }> = [];
+
+  for (const tx of transactions) {
+    if (tx.type === 'DEBT_PAYMENT' && tx.customer_id == null) {
+      const inferredCustomerId = inferCustomerForPayment(runningBalances, Number(tx.amount) || 0);
+      if (inferredCustomerId != null) {
+        repairs.push({ id: tx.id, customerId: inferredCustomerId });
+        tx.customer_id = inferredCustomerId;
+      }
+    }
+
+    if (tx.customer_id != null) {
+      const nextBalance = (runningBalances.get(tx.customer_id) || 0) + getDebtDelta(tx);
+      runningBalances.set(tx.customer_id, nextBalance);
+    }
+  }
+
+  for (const repair of repairs) {
+    await db.runAsync(
+      'UPDATE transactions SET customer_id = ? WHERE id = ?',
+      [repair.customerId, repair.id]
+    );
+  }
+
+  await db.runAsync(
+    'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
+    [DEBT_PAYMENT_REPAIR_KEY, 'done']
+  );
+}
+
 export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
   // Optimize pragmas for safety, speed, and corruption resistance
   await db.execAsync(`
@@ -14,6 +95,9 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT UNIQUE NOT NULL,
       phone TEXT,
+      notes TEXT,
+      follow_up_status TEXT NOT NULL DEFAULT 'active',
+      last_reminded_at TEXT,
       created_at TEXT NOT NULL
     );
 
@@ -32,6 +116,7 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
     CREATE TABLE IF NOT EXISTS expenses (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       description TEXT NOT NULL,
+      category TEXT NOT NULL DEFAULT 'OTHER',
       amount REAL NOT NULL,
       channel TEXT NOT NULL DEFAULT 'PHYSICAL_CASH',
       created_at TEXT NOT NULL
@@ -54,6 +139,18 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
   } catch {
     // Column already exists
   }
+  try {
+    await db.execAsync("ALTER TABLE customers ADD COLUMN notes TEXT;");
+  } catch {}
+  try {
+    await db.execAsync("ALTER TABLE customers ADD COLUMN follow_up_status TEXT NOT NULL DEFAULT 'active';");
+  } catch {}
+  try {
+    await db.execAsync("ALTER TABLE customers ADD COLUMN last_reminded_at TEXT;");
+  } catch {}
+  try {
+    await db.execAsync("ALTER TABLE expenses ADD COLUMN category TEXT NOT NULL DEFAULT 'OTHER';");
+  } catch {}
 
   // Drop old triggers to redefine them
   await db.execAsync(`
@@ -290,4 +387,6 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
       await db.runAsync('INSERT INTO settings (key, value) VALUES (?, ?)', [s.key, s.value]);
     }
   }
+
+  await repairBrokenDebtPayments(db);
 }

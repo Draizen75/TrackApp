@@ -3,6 +3,7 @@ import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Modal, Keyb
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDbQueries, Debtor, cleanErrorMessage } from '@/hooks/useDbQueries';
 import { useToast } from '@/components/toast';
+import { useRouter } from 'expo-router';
 import { 
   MessageSquare, 
   Check, 
@@ -13,6 +14,7 @@ import {
   ChevronDown,
   ChevronUp,
   Trash2,
+  PlusCircle,
 } from 'lucide-react-native';
 import * as SMS from 'expo-sms';
 import * as Haptics from 'expo-haptics';
@@ -39,12 +41,14 @@ const C = {
 
 export default function DebtorsScreen() {
   const { showToast } = useToast();
-  const { useDebtors, useSettleDebt, useTransactions, useWallets, useDeleteCustomer } = useDbQueries();
+  const router = useRouter();
+  const { useDebtors, useSettleDebt, useTransactions, useWallets, useDeleteCustomer, useUpdateCustomerMeta } = useDbQueries();
   const { data: debtors = [], isLoading, refetch } = useDebtors();
   const { data: transactions = [] } = useTransactions();
   const { data: wallets = [] } = useWallets();
   const settleMutation = useSettleDebt();
   const deleteCustomerMutation = useDeleteCustomer();
+  const updateCustomerMetaMutation = useUpdateCustomerMeta();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDebtor, setSelectedDebtor] = useState<Debtor | null>(null);
@@ -54,6 +58,7 @@ export default function DebtorsScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [showSettledList, setShowSettledList] = useState(false);
+  const [sortMode, setSortMode] = useState<'overdue' | 'largest' | 'recent_payment'>('overdue');
 
   const handleSendSMS = async (debtor: Debtor) => {
     if (process.env.EXPO_OS !== 'web') {
@@ -67,6 +72,11 @@ export default function DebtorsScreen() {
       const isAvailable = await SMS.isAvailableAsync();
       if (isAvailable) {
         await SMS.sendSMSAsync([cleanPhone], message);
+        await updateCustomerMetaMutation.mutateAsync({
+          id: debtor.id,
+          last_reminded_at: new Date().toISOString(),
+        });
+        refetch();
       } else {
         Alert.alert("SMS Not Available", "SMS capability is not supported on this device. Copy reminder text instead?", [
           { text: "Cancel" },
@@ -129,6 +139,19 @@ export default function DebtorsScreen() {
         }
       ]
     );
+  };
+
+  const openDebtEntry = async (debtor: Debtor) => {
+    if (process.env.EXPO_OS !== 'web') {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    router.push({
+      pathname: '/entry',
+      params: {
+        debtorId: debtor.id.toString(),
+        debtorName: debtor.name,
+      },
+    });
   };
 
   const submitSettlement = async () => {
@@ -205,7 +228,16 @@ export default function DebtorsScreen() {
     d.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const activeDebtors = useMemo(() => filteredDebtors.filter(d => d.balance > 0), [filteredDebtors]);
+  const activeDebtors = useMemo(() => {
+    const base = filteredDebtors.filter(d => d.balance > 0);
+    return [...base].sort((a, b) => {
+      if (sortMode === 'largest') return b.balance - a.balance;
+      if (sortMode === 'recent_payment') {
+        return new Date(b.last_payment_date || 0).getTime() - new Date(a.last_payment_date || 0).getTime();
+      }
+      return getDebtAge(b.oldest_debt_date) - getDebtAge(a.oldest_debt_date);
+    });
+  }, [filteredDebtors, sortMode]);
   const settledDebtors = useMemo(() => filteredDebtors.filter(d => d.balance === 0), [filteredDebtors]);
 
   const totalOutstanding = debtors.reduce((sum, d) => sum + d.balance, 0);
@@ -317,9 +349,29 @@ export default function DebtorsScreen() {
           </View>
 
           {/* ACTIVE OUTSTANDING DEBTORS SECTION */}
-          <Text style={{ color: C.text2, fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', fontWeight: '700', marginBottom: 12 }}>
-            Active Outstanding Debts ({activeDebtors.length})
-          </Text>
+          <View style={{ marginBottom: 12 }}>
+            <Text style={{ color: C.text2, fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', fontWeight: '700' }}>
+              Active Outstanding Debts ({activeDebtors.length})
+            </Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingTop: 10, paddingRight: 8 }}>
+              {[
+                { key: 'overdue', label: 'Overdue' },
+                { key: 'largest', label: 'Largest' },
+                { key: 'recent_payment', label: 'Recent Pay' },
+              ].map((option) => {
+                const isActive = sortMode === option.key;
+                return (
+                  <TouchableOpacity
+                    key={option.key}
+                    onPress={() => setSortMode(option.key as typeof sortMode)}
+                    style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: isActive ? C.accent : C.border, backgroundColor: isActive ? C.accentDim : C.surface }}
+                  >
+                    <Text style={{ color: isActive ? C.accent : C.text3, fontSize: 10, fontWeight: '700' }}>{option.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
 
           {isLoading ? (
             <Text style={{ color: C.text3, textAlign: 'center', paddingVertical: 24 }}>Loading ledger records...</Text>
@@ -355,12 +407,11 @@ export default function DebtorsScreen() {
                         backgroundColor: alertInfo.bg,
                         borderWidth: 1,
                         borderColor: alertInfo.borderColor,
-                        flexDirection: 'row',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
+                        paddingBottom: 14,
                       }}>
-                        <View style={{ flex: 1, paddingRight: 8 }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                          <View style={{ flex: 1, paddingRight: 8 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                             <Text style={{ color: C.text1, fontSize: 15, fontWeight: '800' }}>{debtor.name}</Text>
                             {alertInfo.level !== 'normal' && (
                               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: 'rgba(230,168,23,0.1)', borderWidth: 1, borderColor: 'rgba(230,168,23,0.2)' }}>
@@ -375,22 +426,35 @@ export default function DebtorsScreen() {
                           {debtor.phone && (
                             <Text style={{ color: C.text3, fontSize: 10, marginTop: 2 }}>Phone: {debtor.phone}</Text>
                           )}
-                        </View>
+                          {!!debtor.last_payment_date && (
+                            <Text style={{ color: C.text3, fontSize: 10, marginTop: 2 }}>
+                              Last payment: {new Date(debtor.last_payment_date).toLocaleDateString()}
+                            </Text>
+                          )}
+                          </View>
 
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                          <View style={{ alignItems: 'flex-end', marginRight: 4 }}>
+                          <View style={{ alignItems: 'flex-end' }}>
                             <Text style={{ color: C.text1, fontSize: 16, fontWeight: '900' }}>
                               ₱{debtor.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                             </Text>
                             <Text style={{ color: C.text3, fontSize: 9, textAlign: 'right' }}>outstanding</Text>
                           </View>
+                        </View>
 
-                          <View style={{ flexDirection: 'row', gap: 6 }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 5, marginTop: 12 }}>
+                            <TouchableOpacity
+                              onPress={() => openDebtEntry(debtor)}
+                              style={{ backgroundColor: C.surface2, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 12, borderWidth: 1, borderColor: C.border, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                            >
+                              <PlusCircle size={14} color={C.success} />
+                              <Text style={{ color: C.text2, fontSize: 10, fontWeight: '700' }}>Add</Text>
+                            </TouchableOpacity>
                             <TouchableOpacity
                               onPress={() => openSettleModal(debtor)}
-                              style={{ backgroundColor: C.surface2, padding: 8, borderRadius: 12, borderWidth: 1, borderColor: C.border }}
+                              style={{ backgroundColor: C.surface2, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 12, borderWidth: 1, borderColor: C.border, flexDirection: 'row', alignItems: 'center', gap: 4 }}
                             >
                               <Coins size={14} color={C.accent} />
+                              <Text style={{ color: C.text2, fontSize: 10, fontWeight: '700' }}>Settle</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
                               onPress={() => handleSendSMS(debtor)}
@@ -399,7 +463,6 @@ export default function DebtorsScreen() {
                               <MessageSquare size={14} color="#6fa3d8" />
                             </TouchableOpacity>
                           </View>
-                        </View>
                       </View>
                     </TouchableOpacity>
                   </Swipeable>
@@ -509,7 +572,7 @@ export default function DebtorsScreen() {
           onRequestClose={() => setDetailModalVisible(false)}
         >
           <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(18, 16, 14, 0.85)' }}>
-            <View style={{ backgroundColor: C.surface, borderTopWidth: 1, borderColor: C.border, borderTopLeftRadius: 36, borderTopRightRadius: 36, padding: 24, height: '75%', paddingBottom: 48 }}>
+            <View style={{ backgroundColor: C.surface, borderTopWidth: 1, borderColor: C.border, borderTopLeftRadius: 36, borderTopRightRadius: 36, padding: 24, height: '88%', paddingBottom: 24 }}>
               {/* Header */}
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
                 <View>
@@ -525,28 +588,32 @@ export default function DebtorsScreen() {
               </View>
 
               {/* Total Balance Card */}
-              <View style={{ backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 20, padding: 16, marginBottom: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View style={{ backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 20, padding: 16, marginBottom: 20 }}>
                 <View>
                   <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', textTransform: 'uppercase' }}>Current Balance</Text>
                   <Text style={{ color: selectedDebtor && selectedDebtor.balance > 0 ? C.accent : C.success, fontSize: 24, fontWeight: '900', marginTop: 4 }}>
                     ₱{selectedDebtor?.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </Text>
+                  <Text style={{ color: C.text3, fontSize: 10, marginTop: 6 }}>
+                    Last payment: {selectedDebtor?.last_payment_date ? new Date(selectedDebtor.last_payment_date).toLocaleDateString() : 'No payment yet'}
+                  </Text>
                 </View>
-                <View style={{ flexDirection: 'row', gap: 8 }}>
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
                   {selectedDebtor && selectedDebtor.balance > 0 ? (
                     <>
                       <TouchableOpacity
+                        onPress={() => openDebtEntry(selectedDebtor)}
+                        style={{ flex: 1, backgroundColor: C.surface2, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: C.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                      >
+                        <PlusCircle size={14} color={C.success} />
+                        <Text style={{ color: C.text2, fontSize: 11, fontWeight: '700' }}>Add Debt</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
                         onPress={() => openSettleModal(selectedDebtor)}
-                        style={{ backgroundColor: C.surface2, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: C.border, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                        style={{ flex: 1, backgroundColor: C.surface2, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: C.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}
                       >
                         <Coins size={14} color={C.accent} />
                         <Text style={{ color: C.text2, fontSize: 11, fontWeight: '700' }}>Settle</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => handleSendSMS(selectedDebtor)}
-                        style={{ backgroundColor: C.surface2, padding: 10, borderRadius: 12, borderWidth: 1, borderColor: C.border }}
-                      >
-                        <MessageSquare size={14} color="#6fa3d8" />
                       </TouchableOpacity>
                     </>
                   ) : (
@@ -560,7 +627,7 @@ export default function DebtorsScreen() {
               {/* Itemized Ledger */}
               <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 12 }}>Ledger History</Text>
               
-              <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+              <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 20 }}>
                 {debtorLedgerHistory.length === 0 ? (
                   <Text style={{ color: C.text3, fontSize: 12, textAlign: 'center', paddingVertical: 20 }}>No transaction history for this customer.</Text>
                 ) : (

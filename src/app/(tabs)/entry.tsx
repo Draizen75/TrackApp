@@ -1,6 +1,7 @@
 import { useDbQueries, cleanErrorMessage } from '@/hooks/useDbQueries';
 import { useToast } from '@/components/toast';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { PlusCircle, Search, UserPlus } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
@@ -28,6 +29,12 @@ const C = {
   text3: '#6b6158',
 };
 
+const clearZeroIfNeeded = (value: string, setter: (value: string) => void) => {
+  if (/^0(\.0+)?$/.test(value.trim())) {
+    setter('');
+  }
+};
+
 const entrySchema = z.object({
   type: z.enum(['CASH_IN', 'CASH_OUT', 'E_LOAD', 'TV_LOAD']),
   amount: z.string().refine((val) => !isNaN(parseFloat(val)) && parseFloat(val) > 0, {
@@ -46,12 +53,16 @@ type EntryFormValues = z.infer<typeof entrySchema>;
 
 export default function EntryScreen() {
   const { showToast } = useToast();
-  const { useCustomers, useAddCustomer, useAddTransaction, useSettings, useWallets } = useDbQueries();
+  const { debtorId, debtorName } = useLocalSearchParams<{ debtorId?: string; debtorName?: string }>();
+  const { useCustomers, useAddCustomer, useAddTransaction, useSettings, useWallets, useTransactions, useDebtors } = useDbQueries();
   const { data: customers = [], refetch: refetchCustomers } = useCustomers();
   const { data: settings } = useSettings();
   const { data: wallets = [] } = useWallets();
+  const { data: transactions = [] } = useTransactions();
+  const { data: debtors = [] } = useDebtors();
   const addCustomerMutation = useAddCustomer();
   const addTransactionMutation = useAddTransaction();
+  const amountPresets = [100, 200, 500, 1000];
 
   const getWalletLabel = (channel: string) => {
     const upper = channel.toUpperCase();
@@ -123,6 +134,31 @@ export default function EntryScreen() {
     setValue('channel', 'GCASH');
   }, [txType, setValue]);
 
+  useEffect(() => {
+    if (!debtorId && !debtorName) return;
+
+    const parsedDebtorId = debtorId ? parseInt(debtorId, 10) : NaN;
+    const matchedCustomer = !isNaN(parsedDebtorId)
+      ? customers.find((c: any) => c.id === parsedDebtorId)
+      : customers.find((c: any) => c.name.toLowerCase() === (debtorName || '').toLowerCase());
+
+    setValue('is_debt', true);
+    setShowCustomerDropdown(false);
+
+    if (matchedCustomer) {
+      setSelectedCustomerId(matchedCustomer.id);
+      setValue('customerName', matchedCustomer.name);
+      setCustomerSearchQuery(matchedCustomer.name);
+      return;
+    }
+
+    if (debtorName) {
+      setSelectedCustomerId(!isNaN(parsedDebtorId) ? parsedDebtorId : null);
+      setValue('customerName', debtorName);
+      setCustomerSearchQuery(debtorName);
+    }
+  }, [customers, debtorId, debtorName, setValue]);
+
   const filteredCustomers = customers.filter((c: any) =>
     c.name.toLowerCase().includes(customerSearchQuery.toLowerCase())
   );
@@ -132,6 +168,25 @@ export default function EntryScreen() {
     setValue('customerName', name);
     setCustomerSearchQuery(name);
     setShowCustomerDropdown(false);
+  };
+
+  const applyLastTransaction = async () => {
+    const lastTx = transactions.find((tx) => tx.type !== 'DEBT_PAYMENT');
+    if (!lastTx) return;
+    if (process.env.EXPO_OS !== 'web') {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    setValue('type', lastTx.type === 'DEBT_PAYMENT' ? 'CASH_IN' : lastTx.type);
+    setValue('amount', String(lastTx.amount));
+    setValue('fee', String(lastTx.fee));
+    setValue('channel', lastTx.channel);
+    setValue('deduct_fee', lastTx.deduct_fee === 1);
+    setValue('is_debt', lastTx.is_debt === 1);
+    if (lastTx.is_debt === 1 && lastTx.customer_id && lastTx.customer_name) {
+      setSelectedCustomerId(lastTx.customer_id);
+      setValue('customerName', lastTx.customer_name);
+      setCustomerSearchQuery(lastTx.customer_name);
+    }
   };
 
   const getGhostPreview = () => {
@@ -318,7 +373,26 @@ export default function EntryScreen() {
             </View>
 
             {/* 2. Amount Input & Fee Input */}
-            <View style={{ flexDirection: 'row', gap: 16, marginBottom: 20 }}>
+            <View style={{ marginBottom: 10 }}>
+              <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase' }}>
+                Fast Amount Presets
+              </Text>
+              <TouchableOpacity onPress={applyLastTransaction} style={{ alignSelf: 'flex-start', marginTop: 10, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: C.border, backgroundColor: C.bg }}>
+                <Text style={{ color: C.text2, fontSize: 10, fontWeight: '700' }}>Repeat Last</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 14 }}>
+              {amountPresets.map((preset) => (
+                <TouchableOpacity
+                  key={preset}
+                  onPress={() => setValue('amount', String(preset))}
+                  style={{ backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8 }}
+                >
+                  <Text style={{ color: C.text2, fontSize: 11, fontWeight: '700' }}>PHP {preset}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
               <View style={{ flex: 3 }}>
                 <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>
                   Base Amount (₱)
@@ -344,6 +418,7 @@ export default function EntryScreen() {
                       placeholderTextColor={C.text3}
                       onBlur={onBlur}
                       onChangeText={onChange}
+                      onFocus={() => clearZeroIfNeeded(value, onChange)}
                       value={value}
                     />
                   )}
@@ -377,6 +452,7 @@ export default function EntryScreen() {
                       placeholderTextColor={C.text3}
                       onBlur={onBlur}
                       onChangeText={onChange}
+                      onFocus={() => clearZeroIfNeeded(value, onChange)}
                       value={value}
                     />
                   )}
@@ -449,8 +525,8 @@ export default function EntryScreen() {
 
             {/* 5. Deduct Fee from Payout Toggle (conditional on Cash In/Cash Out) */}
             {(txType === 'CASH_IN' || txType === 'CASH_OUT') && (
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, padding: 16, borderRadius: 16, marginBottom: 16 }}>
-                <View style={{ flex: 1, paddingRight: 8 }}>
+              <View style={{ backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, padding: 16, borderRadius: 16, marginBottom: 16 }}>
+                <View style={{ paddingRight: 8 }}>
                   <Text style={{ color: C.text1, fontSize: 13, fontWeight: '700' }}>Deduct fee from principal?</Text>
                   {txType === 'CASH_IN' ? (
                     <Text style={{ color: C.text3, fontSize: 11, marginTop: 2 }}>
@@ -462,60 +538,82 @@ export default function EntryScreen() {
                     </Text>
                   )}
                 </View>
+                <View style={{ marginTop: 14, alignItems: 'flex-end' }}>
+                  <Controller
+                    control={control}
+                    name="deduct_fee"
+                    render={({ field: { onChange, value } }) => (
+                      <Switch
+                        trackColor={{ false: C.border, true: C.accent }}
+                        thumbColor={value ? C.text1 : C.text3}
+                        onValueChange={async (val) => {
+                          if (process.env.EXPO_OS !== 'web') {
+                            await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                          }
+                          onChange(val);
+                        }}
+                        value={value}
+                      />
+                    )}
+                  />
+                </View>
+              </View>
+            )}
+
+            {/* 6. Utang / Debt Toggle */}
+            <View style={{ backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, padding: 16, borderRadius: 16, marginBottom: 20 }}>
+              <View>
+                <Text style={{ color: C.text1, fontSize: 13, fontWeight: '700' }}>Is this an Utang / Lend item?</Text>
+                <Text style={{ color: C.text3, fontSize: 11, marginTop: 2 }}>Add this transaction to customer debt balance</Text>
+              </View>
+              <View style={{ marginTop: 14, alignItems: 'flex-end' }}>
                 <Controller
                   control={control}
-                  name="deduct_fee"
+                  name="is_debt"
                   render={({ field: { onChange, value } }) => (
                     <Switch
-                      trackColor={{ false: C.border, true: C.accent }}
+                      trackColor={{ false: C.border, true: C.success }}
                       thumbColor={value ? C.text1 : C.text3}
                       onValueChange={async (val) => {
                         if (process.env.EXPO_OS !== 'web') {
                           await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                         }
                         onChange(val);
+                        if (!val) {
+                          setValue('customerName', '');
+                          setSelectedCustomerId(null);
+                          setCustomerSearchQuery('');
+                          setShowCustomerDropdown(false);
+                        }
                       }}
                       value={value}
                     />
                   )}
                 />
               </View>
-            )}
-
-            {/* 6. Utang / Debt Toggle */}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, padding: 16, borderRadius: 16, marginBottom: 20 }}>
-              <View>
-                <Text style={{ color: C.text1, fontSize: 13, fontWeight: '700' }}>Is this an Utang / Lend item?</Text>
-                <Text style={{ color: C.text3, fontSize: 11, marginTop: 2 }}>Add this transaction to customer debt balance</Text>
-              </View>
-              <Controller
-                control={control}
-                name="is_debt"
-                render={({ field: { onChange, value } }) => (
-                  <Switch
-                    trackColor={{ false: C.border, true: C.success }}
-                    thumbColor={value ? C.text1 : C.text3}
-                    onValueChange={async (val) => {
-                      if (process.env.EXPO_OS !== 'web') {
-                        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                      }
-                      onChange(val);
-                      if (!val) {
-                        setValue('customerName', '');
-                        setSelectedCustomerId(null);
-                        setCustomerSearchQuery('');
-                        setShowCustomerDropdown(false);
-                      }
-                    }}
-                    value={value}
-                  />
-                )}
-              />
             </View>
 
             {/* 6. Debtor Selector (conditional on is_debt) */}
             {isDebt && (
               <View style={{ marginBottom: 20, position: 'relative' }}>
+                {debtors.length > 0 && (
+                  <View style={{ marginBottom: 10 }}>
+                    <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>
+                      Recent Debtors
+                    </Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                      {debtors.slice(0, 5).map((debtor) => (
+                        <TouchableOpacity
+                          key={debtor.id}
+                          onPress={() => selectCustomer(debtor.id, debtor.name)}
+                          style={{ backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 }}
+                        >
+                          <Text style={{ color: C.text2, fontSize: 11, fontWeight: '700' }}>{debtor.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
                 <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>
                   Debtor Customer Name
                 </Text>

@@ -24,6 +24,9 @@ export interface Customer {
   id: number;
   name: string;
   phone: string | null;
+  notes?: string | null;
+  follow_up_status?: string | null;
+  last_reminded_at?: string | null;
   created_at: string;
 }
 
@@ -43,6 +46,7 @@ export interface Transaction {
 export interface Expense {
   id: number;
   description: string;
+  category?: string;
   amount: number;
   channel: string;
   created_at: string;
@@ -57,11 +61,30 @@ export interface Debtor {
   id: number;
   name: string;
   phone: string | null;
+  notes?: string | null;
+  follow_up_status?: string | null;
+  last_reminded_at?: string | null;
   balance: number;
   oldest_debt_date: string | null;
+  last_payment_date?: string | null;
 }
 
-// --- WEB MOCK DATABASE ENGINE (localStorage backed for offline preview support) ---
+export interface HealthCheckItem {
+  kind: 'low_float' | 'overdue_debt' | 'orphan_payment' | 'negative_debt';
+  label: string;
+  detail: string;
+  severity: 'info' | 'warning' | 'danger';
+}
+
+// ─── Export data shape (unified across web & native) ────────────────────────
+
+export interface ExportData {
+  transactions: (Transaction & { customer_name?: string | null })[];
+  expenses: Expense[];
+  debtors: Debtor[];
+}
+
+// ─── WEB MOCK DATABASE ENGINE (localStorage backed for offline preview support) ───
 
 const channelNames: Record<string, string> = {
   GCASH: 'GCash',
@@ -73,7 +96,7 @@ const channelNames: Record<string, string> = {
 
 const defaultWebDb = {
   customers: [
-    { id: 1, name: 'Sari-Sari Store Cash', phone: '', created_at: new Date().toISOString() }
+    { id: 1, name: 'Sari-Sari Store Cash', phone: '', notes: '', follow_up_status: 'active', last_reminded_at: null, created_at: new Date().toISOString() }
   ],
   transactions: [] as any[],
   expenses: [] as any[],
@@ -94,6 +117,24 @@ const defaultWebDb = {
   } as Record<string, string>
 };
 
+const DEBT_PAYMENT_REPAIR_KEY = 'debt_payment_customer_repair_v1';
+
+const getLocalDateKey = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const extractStoredDateKey = (value?: string | null) => {
+  if (!value) return '';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value.slice(0, 10);
+  }
+  return getLocalDateKey(parsed);
+};
+
 const getWebDb = () => {
   if (typeof window === 'undefined') return defaultWebDb;
   const data = localStorage.getItem('counter_db');
@@ -103,13 +144,15 @@ const getWebDb = () => {
   }
   try {
     const parsed = JSON.parse(data);
-    return {
+    const hydratedDb = {
       customers: parsed.customers || defaultWebDb.customers,
       transactions: parsed.transactions || defaultWebDb.transactions,
       expenses: parsed.expenses || defaultWebDb.expenses,
       wallets: { ...defaultWebDb.wallets, ...(parsed.wallets || {}) },
       settings: { ...defaultWebDb.settings, ...(parsed.settings || {}) },
     };
+    repairBrokenWebDebtPayments(hydratedDb);
+    return hydratedDb;
   } catch {
     return defaultWebDb;
   }
@@ -117,6 +160,86 @@ const getWebDb = () => {
 
 const saveWebDb = (db: any) => {
   if (typeof window !== 'undefined') {
+    localStorage.setItem('counter_db', JSON.stringify(db));
+  }
+};
+
+const getDebtBalanceForCustomer = (
+  transactions: Array<{
+    id: number;
+    customer_id: number | null;
+    is_debt: number;
+    deduct_fee?: number;
+    fee: number;
+    amount: number;
+    type: string;
+  }>,
+  customerId: number,
+  excludedTxId?: number
+) => {
+  return transactions.reduce((sum, tx) => {
+    if (tx.customer_id !== customerId || tx.id === excludedTxId) {
+      return sum;
+    }
+    if (tx.is_debt === 1) {
+      const fee = tx.deduct_fee === 1 ? 0 : (Number(tx.fee) || 0);
+      return sum + (Number(tx.amount) || 0) + fee;
+    }
+    if (tx.type === 'DEBT_PAYMENT') {
+      return sum - (Number(tx.amount) || 0);
+    }
+    return sum;
+  }, 0);
+};
+
+const repairBrokenWebDebtPayments = (db: any) => {
+  if (db.settings?.[DEBT_PAYMENT_REPAIR_KEY] === 'done') {
+    return;
+  }
+
+  const runningBalances = new Map<number, number>();
+  const sortedTransactions = [...(db.transactions || [])].sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime() || a.id - b.id
+  );
+
+  let changed = false;
+
+  for (const tx of sortedTransactions) {
+    if (tx.type === 'DEBT_PAYMENT' && tx.customer_id == null) {
+      const candidates = Array.from(runningBalances.entries())
+        .filter(([, balance]) => balance >= (Number(tx.amount) || 0) - 0.01)
+        .map(([customerId]) => customerId);
+
+      if (candidates.length === 1) {
+        tx.customer_id = candidates[0];
+        const originalTx = (db.transactions || []).find((item: any) => item.id === tx.id);
+        if (originalTx) {
+          originalTx.customer_id = candidates[0];
+        }
+        changed = true;
+      }
+    }
+
+    if (tx.customer_id != null) {
+      const currentBalance = runningBalances.get(tx.customer_id) || 0;
+      let delta = 0;
+      if (tx.is_debt === 1) {
+        delta = (Number(tx.amount) || 0) + (tx.deduct_fee === 1 ? 0 : (Number(tx.fee) || 0));
+      } else if (tx.type === 'DEBT_PAYMENT') {
+        delta = -(Number(tx.amount) || 0);
+      }
+      runningBalances.set(tx.customer_id, currentBalance + delta);
+    }
+  }
+
+  db.settings = {
+    ...(db.settings || {}),
+    [DEBT_PAYMENT_REPAIR_KEY]: 'done',
+  };
+
+  if (changed) {
+    saveWebDb(db);
+  } else if (typeof window !== 'undefined') {
     localStorage.setItem('counter_db', JSON.stringify(db));
   }
 };
@@ -139,9 +262,9 @@ const getDashboardMetrics = (db: any) => {
     return sum;
   }, 0);
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalDateKey();
   const todayProfit = transactions.reduce((sum: number, tx: any) => {
-    if (tx.created_at && tx.created_at.startsWith(todayStr)) return sum + (Number(tx.fee) || 0);
+    if (extractStoredDateKey(tx.created_at) === todayStr) return sum + (Number(tx.fee) || 0);
     return sum;
   }, 0);
 
@@ -165,14 +288,101 @@ const getDashboardMetrics = (db: any) => {
   for (let i = 6; i >= 0; i--) {
     const d = new Date();
     d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().split('T')[0];
+    const dateStr = getLocalDateKey(d);
     const displayLabel = d.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' });
     const profit = transactions.reduce((sum: number, tx: any) => {
-      if (tx.created_at && tx.created_at.startsWith(dateStr)) return sum + (Number(tx.fee) || 0);
+      if (extractStoredDateKey(tx.created_at) === dateStr) return sum + (Number(tx.fee) || 0);
       return sum;
     }, 0);
     dailyProfits.push({ date: displayLabel, profit });
   }
+
+  const todayTransactionsCount = transactions.filter((tx: any) => extractStoredDateKey(tx.created_at) === todayStr).length;
+  const debtAddedToday = transactions.reduce((sum: number, tx: any) => {
+    if (extractStoredDateKey(tx.created_at) === todayStr && tx.is_debt === 1) {
+      const fee = tx.deduct_fee === 1 ? 0 : (Number(tx.fee) || 0);
+      return sum + (Number(tx.amount) || 0) + fee;
+    }
+    return sum;
+  }, 0);
+  const debtCollectedToday = transactions.reduce((sum: number, tx: any) => {
+    if (extractStoredDateKey(tx.created_at) === todayStr && tx.type === 'DEBT_PAYMENT') {
+      return sum + (Number(tx.amount) || 0);
+    }
+    return sum;
+  }, 0);
+
+  const debtorsMap = new Map<number, any>();
+  for (const tx of transactions) {
+    if (!tx.customer_id) continue;
+    if (!debtorsMap.has(tx.customer_id)) {
+      const customer = db.customers.find((c: any) => c.id === tx.customer_id);
+      debtorsMap.set(tx.customer_id, {
+        id: tx.customer_id,
+        name: customer?.name || 'Unknown',
+        balance: 0,
+        oldest_debt_date: null,
+      });
+    }
+    const debtor = debtorsMap.get(tx.customer_id);
+    if (tx.is_debt === 1) {
+      const fee = tx.deduct_fee === 1 ? 0 : (Number(tx.fee) || 0);
+      debtor.balance += (Number(tx.amount) || 0) + fee;
+      if (!debtor.oldest_debt_date) {
+        debtor.oldest_debt_date = tx.created_at;
+      }
+    } else if (tx.type === 'DEBT_PAYMENT') {
+      debtor.balance -= Number(tx.amount) || 0;
+    }
+  }
+
+  const healthChecks: HealthCheckItem[] = [];
+  Object.entries(walletsMap).forEach(([channel, balance]) => {
+    if ((Number(balance) || 0) >= 0 && (Number(balance) || 0) < 200) {
+      healthChecks.push({
+        kind: 'low_float',
+        label: `${channelNames[channel] || channel} running low`,
+        detail: `Only PHP ${(Number(balance) || 0).toFixed(2)} float left`,
+        severity: (Number(balance) || 0) < 100 ? 'danger' : 'warning',
+      });
+    }
+  });
+
+  let orphanPayments = 0;
+  transactions.forEach((tx: any) => {
+    if (tx.type === 'DEBT_PAYMENT' && !tx.customer_id) {
+      orphanPayments += 1;
+    }
+  });
+  if (orphanPayments > 0) {
+    healthChecks.push({
+      kind: 'orphan_payment',
+      label: `${orphanPayments} payment record${orphanPayments > 1 ? 's' : ''} need review`,
+      detail: 'Some debt payments are missing a linked debtor',
+      severity: 'danger',
+    });
+  }
+
+  Array.from(debtorsMap.values()).forEach((debtor: any) => {
+    const ageDays = debtor.oldest_debt_date
+      ? Math.floor(Math.abs(new Date().getTime() - new Date(debtor.oldest_debt_date).getTime()) / (1000 * 60 * 60 * 24))
+      : 0;
+    if (debtor.balance < -0.01) {
+      healthChecks.push({
+        kind: 'negative_debt',
+        label: `${debtor.name} has negative balance`,
+        detail: `Overpaid by PHP ${Math.abs(debtor.balance).toFixed(2)}`,
+        severity: 'danger',
+      });
+    } else if (debtor.balance > 0.01 && ageDays >= 7) {
+      healthChecks.push({
+        kind: 'overdue_debt',
+        label: `${debtor.name} is overdue`,
+        detail: `${ageDays} days outstanding with PHP ${debtor.balance.toFixed(2)} unpaid`,
+        severity: ageDays >= 14 ? 'danger' : 'warning',
+      });
+    }
+  });
 
   return {
     grossProfit,
@@ -183,6 +393,10 @@ const getDashboardMetrics = (db: any) => {
     wallets,
     recentTransactions,
     dailyProfits
+    ,todayTransactionsCount,
+    debtAddedToday,
+    debtCollectedToday,
+    healthChecks: healthChecks.slice(0, 6),
   };
 };
 
@@ -249,8 +463,12 @@ function useWebDbQueries() {
                 id: tx.customer_id,
                 name: cust?.name || 'Unknown',
                 phone: cust?.phone || null,
+                notes: cust?.notes || '',
+                follow_up_status: cust?.follow_up_status || 'active',
+                last_reminded_at: cust?.last_reminded_at || null,
                 balance: 0,
-                oldest_debt_date: null
+                oldest_debt_date: null,
+                last_payment_date: null,
               };
             }
             if (tx.is_debt === 1) {
@@ -261,6 +479,7 @@ function useWebDbQueries() {
               }
             } else if (tx.type === 'DEBT_PAYMENT') {
               debtorsMap[tx.customer_id].balance -= (Number(tx.amount) || 0);
+              debtorsMap[tx.customer_id].last_payment_date = tx.created_at;
             }
           }
         }
@@ -320,6 +539,9 @@ function useWebDbQueries() {
           id: db.customers.length + 1,
           name,
           phone: phone || '',
+          notes: '',
+          follow_up_status: 'active',
+          last_reminded_at: null,
           created_at: new Date().toISOString()
         };
         db.customers.push(newCust);
@@ -351,6 +573,25 @@ function useWebDbQueries() {
       },
       onSuccess: () => {
         queryClient.invalidateQueries();
+      }
+    });
+  };
+
+  const useUpdateCustomerMeta = () => {
+    return useMutation({
+      mutationFn: async ({ id, notes, follow_up_status, last_reminded_at }: { id: number; notes?: string; follow_up_status?: string; last_reminded_at?: string | null }) => {
+        const db = getWebDb();
+        const customer = db.customers.find((c: any) => c.id === id);
+        if (!customer) return;
+        if (notes !== undefined) customer.notes = notes;
+        if (follow_up_status !== undefined) customer.follow_up_status = follow_up_status;
+        if (last_reminded_at !== undefined) customer.last_reminded_at = last_reminded_at;
+        saveWebDb(db);
+      },
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ['customers'] });
+        queryClient.invalidateQueries({ queryKey: ['debtors'] });
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       }
     });
   };
@@ -413,6 +654,18 @@ function useWebDbQueries() {
         const idx = db.transactions.findIndex((t: any) => t.id === tx.id);
         if (idx !== -1) {
           const oldTx = db.transactions[idx];
+          if (tx.is_debt && !tx.customer_id) {
+            throw new Error('Debtor name is required for credit transactions.');
+          }
+          if (tx.type === 'DEBT_PAYMENT') {
+            if (!tx.customer_id) {
+              throw new Error('Debt payment must stay linked to a debtor.');
+            }
+            const outstanding = getDebtBalanceForCustomer(db.transactions, tx.customer_id, tx.id);
+            if (tx.amount - outstanding > 0.01) {
+              throw new Error(`Debt payment cannot exceed the outstanding balance of ${outstanding.toFixed(2)}.`);
+            }
+          }
 
           // Dry run balances check
           const testWallets = { ...db.wallets } as Record<string, number>;
@@ -493,7 +746,7 @@ function useWebDbQueries() {
 
   const useAddExpense = () => {
     return useMutation({
-      mutationFn: async (exp: { description: string; amount: number; channel: string }) => {
+      mutationFn: async (exp: { description: string; category?: string; amount: number; channel: string }) => {
         const db = getWebDb();
         const currentBalance = db.wallets[exp.channel] || 0;
         if (currentBalance - exp.amount < -0.01) {
@@ -502,6 +755,7 @@ function useWebDbQueries() {
         const newExp = {
           id: db.expenses.length + 1,
           description: exp.description,
+          category: exp.category || 'OTHER',
           amount: exp.amount,
           channel: exp.channel,
           created_at: new Date().toISOString()
@@ -605,7 +859,7 @@ function useWebDbQueries() {
         db.transactions = [];
         db.expenses = [];
         db.customers = [
-          { id: 1, name: 'Sari-Sari Store Cash', phone: '', created_at: new Date().toISOString() }
+          { id: 1, name: 'Sari-Sari Store Cash', phone: '', notes: '', follow_up_status: 'active', last_reminded_at: null, created_at: new Date().toISOString() }
         ];
         for (const k of Object.keys(db.wallets)) {
           db.wallets[k] = 0;
@@ -645,7 +899,7 @@ function useWebDbQueries() {
   const useExportData = () => {
     return useQuery({
       queryKey: ['export_data'],
-      queryFn: async () => {
+      queryFn: async (): Promise<ExportData> => {
         const db = getWebDb();
         const transactions = [...(db.transactions || [])]
           .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
@@ -655,7 +909,37 @@ function useWebDbQueries() {
           });
         const expenses = [...(db.expenses || [])]
           .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-        return { transactions, expenses };
+
+        // Build debtor summary
+        const debtorsMap: Record<number, any> = {};
+        for (const tx of (db.transactions || [])) {
+          if (tx.customer_id) {
+            if (!debtorsMap[tx.customer_id]) {
+              const cust = db.customers.find((c: any) => c.id === tx.customer_id);
+              debtorsMap[tx.customer_id] = {
+                id: tx.customer_id,
+                name: cust?.name || 'Unknown',
+                phone: cust?.phone || null,
+                balance: 0,
+                oldest_debt_date: null,
+              };
+            }
+            if (tx.is_debt === 1) {
+              const fee = tx.deduct_fee === 1 ? 0 : (Number(tx.fee) || 0);
+              debtorsMap[tx.customer_id].balance += (Number(tx.amount) || 0) + fee;
+              if (!debtorsMap[tx.customer_id].oldest_debt_date) {
+                debtorsMap[tx.customer_id].oldest_debt_date = tx.created_at;
+              }
+            } else if (tx.type === 'DEBT_PAYMENT') {
+              debtorsMap[tx.customer_id].balance -= (Number(tx.amount) || 0);
+            }
+          }
+        }
+        const debtors = Object.values(debtorsMap)
+          .filter((d: any) => d.balance > 0)
+          .sort((a: any, b: any) => b.balance - a.balance);
+
+        return { transactions, expenses, debtors };
       },
       enabled: false,
     });
@@ -671,6 +955,7 @@ function useWebDbQueries() {
     useExportData,
     useAddCustomer,
     useDeleteCustomer,
+    useUpdateCustomerMeta,
     useAddTransaction,
     useUpdateTransaction,
     useDeleteTransaction,
@@ -725,12 +1010,20 @@ export function useDbQueries() {
         const totalDebt = debtResult?.total_debt ?? 0;
 
         // Today's Gross Profit
-        const todayStr = new Date().toISOString().split('T')[0];
-        const todayProfitResult = await db.getFirstAsync<{ today_profit: number }>(
-          "SELECT COALESCE(SUM(fee), 0) as today_profit FROM transactions WHERE created_at LIKE ?",
-          [`${todayStr}%`]
-        );
-        const todayProfit = todayProfitResult?.today_profit ?? 0;
+        const allTransactions = await db.getAllAsync<Transaction>(`
+          SELECT t.*, c.name as customer_name
+          FROM transactions t
+          LEFT JOIN customers c ON t.customer_id = c.id
+          ORDER BY t.created_at DESC
+        `);
+
+        const todayStr = getLocalDateKey();
+        const todayProfit = allTransactions.reduce((sum, tx) => {
+          if (extractStoredDateKey(tx.created_at) === todayStr) {
+            return sum + (Number(tx.fee) || 0);
+          }
+          return sum;
+        }, 0);
 
         // Wallet balances
         const wallets = await db.getAllAsync<Wallet>(
@@ -738,27 +1031,93 @@ export function useDbQueries() {
         );
 
         // Recent Transactions (limit 15)
-        const recentTransactions = await db.getAllAsync<Transaction>(`
-          SELECT t.*, c.name as customer_name 
-          FROM transactions t
-          LEFT JOIN customers c ON t.customer_id = c.id
-          ORDER BY t.created_at DESC
-          LIMIT 10
-        `);
+        const recentTransactions = allTransactions.slice(0, 10);
+
+        const todayTransactions = allTransactions.filter((tx) => extractStoredDateKey(tx.created_at) === todayStr);
+        const todayTransactionsCount = todayTransactions.length;
+        const debtAddedToday = todayTransactions.reduce((sum, tx) => {
+          if (tx.is_debt === 1) {
+            return sum + (Number(tx.amount) || 0) + (tx.deduct_fee === 1 ? 0 : (Number(tx.fee) || 0));
+          }
+          return sum;
+        }, 0);
+        const debtCollectedToday = todayTransactions.reduce((sum, tx) => {
+          if (tx.type === 'DEBT_PAYMENT') {
+            return sum + (Number(tx.amount) || 0);
+          }
+          return sum;
+        }, 0);
 
         // Daily profits for the last 7 days
         const dailyProfits: { date: string; profit: number }[] = [];
         for (let i = 6; i >= 0; i--) {
           const d = new Date();
           d.setDate(d.getDate() - i);
-          const dateStr = d.toISOString().split('T')[0];
-          const result = await db.getFirstAsync<{ day_profit: number }>(
-            "SELECT COALESCE(SUM(fee), 0) as day_profit FROM transactions WHERE created_at LIKE ?",
-            [`${dateStr}%`]
-          );
+          const dateStr = getLocalDateKey(d);
+          const profit = allTransactions.reduce((sum, tx) => {
+            if (extractStoredDateKey(tx.created_at) === dateStr) {
+              return sum + (Number(tx.fee) || 0);
+            }
+            return sum;
+          }, 0);
           dailyProfits.push({
             date: d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' }),
-            profit: result?.day_profit ?? 0,
+            profit,
+          });
+        }
+
+        const overdueDebtors = await db.getAllAsync<{ name: string; balance: number; oldest_debt_date: string | null }>(`
+          SELECT
+            c.name,
+            COALESCE(SUM(CASE WHEN t.is_debt = 1 THEN (t.amount + (CASE WHEN t.deduct_fee = 1 THEN 0 ELSE t.fee END)) ELSE 0 END), 0) -
+            COALESCE(SUM(CASE WHEN t.type = 'DEBT_PAYMENT' THEN t.amount ELSE 0 END), 0) AS balance,
+            MIN(CASE WHEN t.is_debt = 1 THEN t.created_at ELSE NULL END) AS oldest_debt_date
+          FROM customers c
+          LEFT JOIN transactions t ON c.id = t.customer_id
+          GROUP BY c.id
+          HAVING balance > 0.01
+        `);
+
+        const orphanPaymentsResult = await db.getFirstAsync<{ count: number }>(
+          "SELECT COUNT(*) as count FROM transactions WHERE type = 'DEBT_PAYMENT' AND customer_id IS NULL"
+        );
+        const healthChecks: HealthCheckItem[] = [];
+        wallets.forEach((wallet) => {
+          if (wallet.balance >= 0 && wallet.balance < 200) {
+            healthChecks.push({
+              kind: 'low_float',
+              label: `${channelNames[wallet.channel] || wallet.channel} running low`,
+              detail: `Only PHP ${wallet.balance.toFixed(2)} float left`,
+              severity: wallet.balance < 100 ? 'danger' : 'warning',
+            });
+          }
+        });
+        overdueDebtors.forEach((debtor) => {
+          const ageDays = debtor.oldest_debt_date
+            ? Math.floor(Math.abs(new Date().getTime() - new Date(debtor.oldest_debt_date).getTime()) / (1000 * 60 * 60 * 24))
+            : 0;
+          if (debtor.balance < -0.01) {
+            healthChecks.push({
+              kind: 'negative_debt',
+              label: `${debtor.name} has negative balance`,
+              detail: `Overpaid by PHP ${Math.abs(debtor.balance).toFixed(2)}`,
+              severity: 'danger',
+            });
+          } else if (ageDays >= 7) {
+            healthChecks.push({
+              kind: 'overdue_debt',
+              label: `${debtor.name} is overdue`,
+              detail: `${ageDays} days outstanding with PHP ${debtor.balance.toFixed(2)} unpaid`,
+              severity: ageDays >= 14 ? 'danger' : 'warning',
+            });
+          }
+        });
+        if ((orphanPaymentsResult?.count ?? 0) > 0) {
+          healthChecks.push({
+            kind: 'orphan_payment',
+            label: `${orphanPaymentsResult?.count ?? 0} payment record${(orphanPaymentsResult?.count ?? 0) > 1 ? 's' : ''} need review`,
+            detail: 'Some debt payments are missing a linked debtor',
+            severity: 'danger',
           });
         }
 
@@ -771,6 +1130,10 @@ export function useDbQueries() {
           wallets,
           recentTransactions,
           dailyProfits,
+          todayTransactionsCount,
+          debtAddedToday,
+          debtCollectedToday,
+          healthChecks: healthChecks.slice(0, 6),
         };
       },
     });
@@ -798,9 +1161,13 @@ export function useDbQueries() {
             c.id, 
             c.name, 
             c.phone, 
+            c.notes,
+            c.follow_up_status,
+            c.last_reminded_at,
             COALESCE(SUM(CASE WHEN t.is_debt = 1 THEN (t.amount + (CASE WHEN t.deduct_fee = 1 THEN 0 ELSE t.fee END)) ELSE 0 END), 0) - 
             COALESCE(SUM(CASE WHEN t.type = 'DEBT_PAYMENT' THEN t.amount ELSE 0 END), 0) AS balance,
-            MIN(CASE WHEN t.is_debt = 1 THEN t.created_at ELSE NULL END) AS oldest_debt_date
+            MIN(CASE WHEN t.is_debt = 1 THEN t.created_at ELSE NULL END) AS oldest_debt_date,
+            MAX(CASE WHEN t.type = 'DEBT_PAYMENT' THEN t.created_at ELSE NULL END) AS last_payment_date
           FROM customers c
           LEFT JOIN transactions t ON c.id = t.customer_id
           GROUP BY c.id
@@ -884,6 +1251,31 @@ export function useDbQueries() {
     });
   };
 
+  const useUpdateCustomerMeta = () => {
+    return useMutation({
+      mutationFn: async ({ id, notes, follow_up_status, last_reminded_at }: { id: number; notes?: string; follow_up_status?: string; last_reminded_at?: string | null }) => {
+        const current = await db.getFirstAsync<{ notes: string | null; follow_up_status: string | null; last_reminded_at: string | null }>(
+          "SELECT notes, follow_up_status, last_reminded_at FROM customers WHERE id = ?",
+          [id]
+        );
+        await db.runAsync(
+          "UPDATE customers SET notes = ?, follow_up_status = ?, last_reminded_at = ? WHERE id = ?",
+          [
+            notes ?? current?.notes ?? null,
+            follow_up_status ?? current?.follow_up_status ?? 'active',
+            last_reminded_at !== undefined ? last_reminded_at : current?.last_reminded_at ?? null,
+            id,
+          ]
+        );
+      },
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+        queryClient.invalidateQueries({ queryKey: ['customers'] });
+        queryClient.invalidateQueries({ queryKey: ['debtors'] });
+      },
+    });
+  };
+
   // Add Transaction Mutation
   const useAddTransaction = () => {
     return useMutation({
@@ -928,6 +1320,28 @@ export function useDbQueries() {
       }) => {
         const isDebtInt = tx.is_debt ? 1 : 0;
         const deductFeeInt = tx.deduct_fee ? 1 : 0;
+        if (tx.is_debt && !tx.customer_id) {
+          throw new Error('Debtor name is required for credit transactions.');
+        }
+        if (tx.type === 'DEBT_PAYMENT') {
+          if (!tx.customer_id) {
+            throw new Error('Debt payment must stay linked to a debtor.');
+          }
+          const debtResult = await db.getFirstAsync<{ balance: number }>(
+            `
+              SELECT
+                COALESCE(SUM(CASE WHEN is_debt = 1 THEN (amount + (CASE WHEN deduct_fee = 1 THEN 0 ELSE fee END)) ELSE 0 END), 0) -
+                COALESCE(SUM(CASE WHEN type = 'DEBT_PAYMENT' THEN amount ELSE 0 END), 0) AS balance
+              FROM transactions
+              WHERE customer_id = ? AND id != ?
+            `,
+            [tx.customer_id, tx.id]
+          );
+          const outstanding = debtResult?.balance ?? 0;
+          if (tx.amount - outstanding > 0.01) {
+            throw new Error(`Debt payment cannot exceed the outstanding balance of ${outstanding.toFixed(2)}.`);
+          }
+        }
         await db.runAsync(
           "UPDATE transactions SET type = ?, amount = ?, fee = ?, channel = ?, customer_id = ?, is_debt = ?, deduct_fee = ? WHERE id = ?",
           [tx.type, tx.amount, tx.fee, tx.channel, tx.customer_id, isDebtInt, deductFeeInt, tx.id]
@@ -993,11 +1407,11 @@ export function useDbQueries() {
   // Add Expense Mutation
   const useAddExpense = () => {
     return useMutation({
-      mutationFn: async (exp: { description: string; amount: number; channel: string }) => {
+      mutationFn: async (exp: { description: string; category?: string; amount: number; channel: string }) => {
         const createdAt = new Date().toISOString();
         await db.runAsync(
-          "INSERT INTO expenses (description, amount, channel, created_at) VALUES (?, ?, ?, ?)",
-          [exp.description.trim(), exp.amount, exp.channel, createdAt]
+          "INSERT INTO expenses (description, category, amount, channel, created_at) VALUES (?, ?, ?, ?, ?)",
+          [exp.description.trim(), exp.category || 'OTHER', exp.amount, exp.channel, createdAt]
         );
       },
       onSuccess: () => {
@@ -1152,24 +1566,43 @@ export function useDbQueries() {
     });
   };
 
-  // Export Data Query (all transactions + expenses for CSV)
+  // Export Data Query (all transactions + expenses + debtors for CSV)
   const useExportData = () => {
     return useQuery({
       queryKey: ['export_data'],
-      queryFn: async () => {
-        const transactions = await db.getAllAsync<{
+      queryFn: async (): Promise<ExportData> => {
+        const rows = await db.getAllAsync<{
           id: number; type: string; amount: number; fee: number;
-          channel: string; is_debt: number; created_at: string; customer_name?: string;
+          channel: string; customer_id: number | null; is_debt: number;
+          deduct_fee: number; created_at: string; customer_name?: string;
         }>(`
           SELECT t.*, c.name as customer_name 
           FROM transactions t
           LEFT JOIN customers c ON t.customer_id = c.id
           ORDER BY t.created_at DESC
         `);
+        const transactions = rows as (Transaction & { customer_name?: string | null })[];
         const expenses = await db.getAllAsync<{
           id: number; description: string; amount: number; channel: string; created_at: string;
         }>("SELECT * FROM expenses ORDER BY created_at DESC");
-        return { transactions, expenses };
+
+        // Debtor summary for export
+        const debtors = await db.getAllAsync<Debtor>(`
+          SELECT 
+            c.id, 
+            c.name, 
+            c.phone, 
+            COALESCE(SUM(CASE WHEN t.is_debt = 1 THEN (t.amount + (CASE WHEN t.deduct_fee = 1 THEN 0 ELSE t.fee END)) ELSE 0 END), 0) - 
+            COALESCE(SUM(CASE WHEN t.type = 'DEBT_PAYMENT' THEN t.amount ELSE 0 END), 0) AS balance,
+            MIN(CASE WHEN t.is_debt = 1 THEN t.created_at ELSE NULL END) AS oldest_debt_date
+          FROM customers c
+          LEFT JOIN transactions t ON c.id = t.customer_id
+          GROUP BY c.id
+          HAVING balance > 0.01 OR balance < -0.01
+          ORDER BY balance DESC
+        `);
+
+        return { transactions, expenses, debtors };
       },
       enabled: false,
     });
@@ -1185,6 +1618,7 @@ export function useDbQueries() {
     useExportData,
     useAddCustomer,
     useDeleteCustomer,
+    useUpdateCustomerMeta,
     useAddTransaction,
     useUpdateTransaction,
     useDeleteTransaction,

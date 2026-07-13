@@ -24,6 +24,12 @@ const C = {
   text3: '#6b6158',
 };
 
+const clearZeroIfNeeded = (value: string, setter: (value: string) => void) => {
+  if (/^0(\.0+)?$/.test(value.trim())) {
+    setter('');
+  }
+};
+
 export default function ExpensesScreen() {
   const { useExpenses, useAddExpense, useDeleteExpense, useWallets } = useDbQueries();
   const { data: expenses = [], isLoading, refetch } = useExpenses();
@@ -34,7 +40,9 @@ export default function ExpensesScreen() {
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [channel, setChannel] = useState<string>('PHYSICAL_CASH');
+  const [category, setCategory] = useState('OTHER');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const categories = ['OTHER', 'ELECTRICITY', 'RENT', 'SUPPLIES', 'TRANSPORT', 'FOOD'];
 
   const handleSubmitExpense = async () => {
     if (isSubmitting) return;
@@ -56,6 +64,7 @@ export default function ExpensesScreen() {
 
       await addExpenseMutation.mutateAsync({
         description,
+        category,
         amount: parsedAmount,
         channel,
       });
@@ -63,6 +72,7 @@ export default function ExpensesScreen() {
       setDescription('');
       setAmount('');
       setChannel('PHYSICAL_CASH');
+      setCategory('OTHER');
       refetch();
     } catch (e: any) {
       Alert.alert("Error", cleanErrorMessage(e));
@@ -97,6 +107,12 @@ export default function ExpensesScreen() {
   };
 
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
+  const categorySummary = categories
+    .map((item) => ({
+      category: item,
+      total: expenses.filter((exp) => (exp.category || 'OTHER') === item).reduce((sum, exp) => sum + exp.amount, 0),
+    }))
+    .filter((item) => item.total > 0);
 
   const getWalletLabel = (channel: string) => {
     const upper = channel.toUpperCase();
@@ -181,9 +197,27 @@ export default function ExpensesScreen() {
             />
           </View>
 
+          <View style={{ marginBottom: 16 }}>
+            <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>Category</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+              {categories.map((item) => {
+                const isActive = category === item;
+                return (
+                  <TouchableOpacity
+                    key={item}
+                    onPress={() => setCategory(item)}
+                    style={{ backgroundColor: isActive ? C.accentDim : C.bg, borderWidth: 1, borderColor: isActive ? C.accent : C.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 }}
+                  >
+                    <Text style={{ color: isActive ? C.accent : C.text2, fontSize: 11, fontWeight: '700' }}>{item.replace('_', ' ')}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+
           {/* Amount & Paid via */}
           <View style={{ flexDirection: 'row', gap: 16, marginBottom: 20 }}>
-            <View style={{ flex: 1 }}>
+            <View style={{ width: '50%' }}>
               <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>Amount (₱)</Text>
               <TextInput
                 style={{
@@ -201,11 +235,12 @@ export default function ExpensesScreen() {
                 placeholder="₱ 0.00"
                 placeholderTextColor={C.text3}
                 value={amount}
+                onFocus={() => clearZeroIfNeeded(amount, setAmount)}
                 onChangeText={setAmount}
               />
             </View>
 
-            <View style={{ width: '50%' }}>
+            <View style={{ flex: 1 }}>
               <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>Paid Via Channel</Text>
               <View style={{ backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 16, paddingHorizontal: 8, paddingVertical: 4, height: 46, justifyContent: 'center' }}>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row' }}>
@@ -258,6 +293,22 @@ export default function ExpensesScreen() {
           </TouchableOpacity>
         </View>
 
+        {categorySummary.length > 0 && (
+          <View style={CARD_STYLE}>
+            <Text style={{ color: C.text2, fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', fontWeight: '700', marginBottom: 16 }}>
+              Category Summary
+            </Text>
+            <View style={{ gap: 10 }}>
+              {categorySummary.map((item) => (
+                <View key={item.category} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ color: C.text2, fontSize: 12, fontWeight: '700' }}>{item.category.replace('_', ' ')}</Text>
+                  <Text style={{ color: C.danger, fontSize: 13, fontWeight: '800' }}>PHP {item.total.toFixed(2)}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
         {/* Expenses List */}
         <View style={CARD_STYLE}>
           <Text style={{ color: C.text2, fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', fontWeight: '700', marginBottom: 16 }}>
@@ -285,7 +336,7 @@ export default function ExpensesScreen() {
                   <View style={{ flex: 1, paddingRight: 12 }}>
                     <Text style={{ color: C.text1, fontSize: 14, fontWeight: '700' }}>{exp.description}</Text>
                     <Text style={{ color: C.text3, fontSize: 10, marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                      Paid via {getWalletLabel(exp.channel)} • {new Date(exp.created_at).toLocaleDateString()}
+                      {(exp.category || 'OTHER').replace('_', ' ')} • Paid via {getWalletLabel(exp.channel)} • {new Date(exp.created_at).toLocaleDateString()}
                     </Text>
                   </View>
 

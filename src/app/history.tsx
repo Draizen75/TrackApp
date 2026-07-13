@@ -26,6 +26,12 @@ const C = {
   text3: '#6b6158',
 };
 
+const clearZeroIfNeeded = (value: string, setter: (value: string) => void) => {
+  if (/^0(\.0+)?$/.test(value.trim())) {
+    setter('');
+  }
+};
+
 type FilterType = 'ALL' | 'CASH_IN' | 'CASH_OUT' | 'E_LOAD' | 'TV_LOAD' | 'DEBT_PAYMENT';
 
 export default function HistoryScreen() {
@@ -148,6 +154,22 @@ export default function HistoryScreen() {
     c.name.toLowerCase().includes(customerSearchQuery.toLowerCase())
   );
 
+  const getOutstandingDebtExcludingTransaction = (customerId: number, excludedTxId: number) => {
+    return transactions.reduce((sum, tx) => {
+      if (tx.customer_id !== customerId || tx.id === excludedTxId) {
+        return sum;
+      }
+      if (tx.is_debt === 1) {
+        const fee = tx.deduct_fee === 1 ? 0 : (Number(tx.fee) || 0);
+        return sum + (Number(tx.amount) || 0) + fee;
+      }
+      if (tx.type === 'DEBT_PAYMENT') {
+        return sum - (Number(tx.amount) || 0);
+      }
+      return sum;
+    }, 0);
+  };
+
   const handleSaveChanges = async () => {
     if (!selectedTx || isSaving) return;
     const parsedAmount = parseFloat(editAmount);
@@ -170,7 +192,14 @@ export default function HistoryScreen() {
 
       let finalCustomerId = selectedCustomerId;
 
-      if (editIsDebt) {
+      if (selectedTx.type === 'DEBT_PAYMENT') {
+        finalCustomerId = selectedTx.customer_id ?? selectedCustomerId;
+        if (!finalCustomerId) {
+          Alert.alert("Input Error", "This debt payment is missing a debtor record and cannot be edited safely.");
+          setIsSaving(false);
+          return;
+        }
+      } else if (editIsDebt) {
         const trimmedName = editCustomerName.trim();
         if (!trimmedName) {
           Alert.alert("Input Error", "Debtor name is required for credit transactions.");
@@ -187,6 +216,18 @@ export default function HistoryScreen() {
         }
       } else {
         finalCustomerId = null;
+      }
+
+      if (selectedTx.type === 'DEBT_PAYMENT' && finalCustomerId) {
+        const maxEditablePayment = getOutstandingDebtExcludingTransaction(finalCustomerId, selectedTx.id);
+        if (parsedAmount - maxEditablePayment > 0.01) {
+          Alert.alert(
+            "Invalid Amount",
+            `This payment cannot exceed the debtor's remaining balance of PHP ${maxEditablePayment.toFixed(2)} before this payment is applied.`
+          );
+          setIsSaving(false);
+          return;
+        }
       }
 
       await updateTransactionMutation.mutateAsync({
@@ -472,6 +513,7 @@ export default function HistoryScreen() {
                     }}
                     keyboardType="decimal-pad"
                     value={editAmount}
+                    onFocus={() => clearZeroIfNeeded(editAmount, setEditAmount)}
                     onChangeText={setEditAmount}
                   />
                 </View>
@@ -492,6 +534,7 @@ export default function HistoryScreen() {
                     }}
                     keyboardType="decimal-pad"
                     value={editFee}
+                    onFocus={() => clearZeroIfNeeded(editFee, setEditFee)}
                     onChangeText={setEditFee}
                   />
                 </View>

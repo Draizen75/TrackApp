@@ -16,6 +16,7 @@ import {
   Coins,
   RefreshCw,
   ChevronRight,
+  AlertTriangle,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -238,6 +239,45 @@ export default function DashboardScreen() {
             ))}
           </View>
         </LinearGradient>
+
+        <View style={CARD_STYLE}>
+          <Text style={{ color: C.text2, fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', fontWeight: '700', marginBottom: 16 }}>
+            Today At A Glance
+          </Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+            {[
+              { label: 'Transactions', value: data.todayTransactionsCount },
+              { label: 'Debt Added', value: `PHP ${data.debtAddedToday.toFixed(0)}` },
+              { label: 'Debt Collected', value: `PHP ${data.debtCollectedToday.toFixed(0)}` },
+            ].map((item, idx) => (
+              <View key={item.label} style={{ width: idx === 2 ? '100%' : '48%', backgroundColor: idx === 2 ? C.bg : 'transparent', borderWidth: idx === 2 ? 1 : 0, borderColor: C.border, borderRadius: 14, padding: idx === 2 ? 12 : 0 }}>
+                <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', textTransform: 'uppercase', marginBottom: 6 }}>{item.label}</Text>
+                <Text style={{ color: C.text1, fontSize: idx === 2 ? 17 : 15, fontWeight: '800' }}>{item.value}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        <View style={CARD_STYLE}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 }}>
+            <AlertTriangle size={13} color={C.warning} />
+            <Text style={{ color: C.text2, fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', fontWeight: '700' }}>
+              Health Check
+            </Text>
+          </View>
+          {data.healthChecks?.length ? (
+            <View style={{ gap: 10 }}>
+              {data.healthChecks.map((item, idx) => (
+                <View key={`${item.kind}-${idx}`} style={{ padding: 12, borderRadius: 14, borderWidth: 1, borderColor: item.severity === 'danger' ? 'rgba(220,107,90,0.3)' : 'rgba(230,168,23,0.3)', backgroundColor: item.severity === 'danger' ? C.dangerDim : C.accentDim }}>
+                  <Text style={{ color: item.severity === 'danger' ? C.danger : C.accent, fontSize: 12, fontWeight: '800' }}>{item.label}</Text>
+                  <Text style={{ color: C.text2, fontSize: 11, marginTop: 4 }}>{item.detail}</Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={{ color: C.text3, fontSize: 13 }}>No urgent issues detected in float or debt records.</Text>
+          )}
+        </View>
 
         {/* ── Wallet Float Cards ────────────────────────────────────── */}
         <View style={{ marginBottom: 16 }}>

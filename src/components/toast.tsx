@@ -25,7 +25,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   
   const [fadeAnim] = useState(() => new Animated.Value(0));
   const [slideAnim] = useState(() => new Animated.Value(-100));
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = useCallback((msg: string, type: ToastType = 'success') => {
     if (timeoutRef.current) {
