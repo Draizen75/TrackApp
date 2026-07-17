@@ -12,6 +12,7 @@ type RepairTransactionRow = {
 };
 
 const DEBT_PAYMENT_REPAIR_KEY = 'debt_payment_customer_repair_v1';
+const DEBT_PAYMENT_FEE_WALLET_REPAIR_KEY = 'debt_payment_fee_wallet_repair_v1';
 
 function getDebtDelta(tx: RepairTransactionRow) {
   if (tx.is_debt === 1) {
@@ -78,6 +79,39 @@ async function repairBrokenDebtPayments(db: SQLite.SQLiteDatabase) {
   await db.runAsync(
     'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
     [DEBT_PAYMENT_REPAIR_KEY, 'done']
+  );
+}
+
+async function repairDebtPaymentFeeWalletCredits(db: SQLite.SQLiteDatabase) {
+  const alreadyRepaired = await db.getFirstAsync<{ value: string }>(
+    'SELECT value FROM settings WHERE key = ?',
+    [DEBT_PAYMENT_FEE_WALLET_REPAIR_KEY]
+  );
+
+  if (alreadyRepaired?.value === 'done') {
+    return;
+  }
+
+  const feeCredits = await db.getAllAsync<{ channel: string; total_fee: number }>(`
+    SELECT channel, COALESCE(SUM(fee), 0) AS total_fee
+    FROM transactions
+    WHERE type = 'DEBT_PAYMENT' AND fee > 0
+    GROUP BY channel
+  `);
+
+  for (const credit of feeCredits) {
+    const totalFee = Number(credit.total_fee) || 0;
+    if (totalFee > 0) {
+      await db.runAsync(
+        'UPDATE wallets SET balance = balance + ? WHERE channel = ?',
+        [totalFee, credit.channel]
+      );
+    }
+  }
+
+  await db.runAsync(
+    'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
+    [DEBT_PAYMENT_FEE_WALLET_REPAIR_KEY, 'done']
   );
 }
 
@@ -194,9 +228,9 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
       SET balance = balance + NEW.amount + NEW.fee
       WHERE channel = 'PHYSICAL_CASH' AND (NEW.type = 'E_LOAD' OR NEW.type = 'TV_LOAD') AND NEW.is_debt = 0;
 
-      -- DEBT_PAYMENT: selected channel (where they pay) increases by paid amount
+      -- DEBT_PAYMENT: selected channel increases by principal paid plus extra profit received
       UPDATE wallets
-      SET balance = balance + NEW.amount
+      SET balance = balance + NEW.amount + NEW.fee
       WHERE channel = NEW.channel AND NEW.type = 'DEBT_PAYMENT';
     END;
   `);
@@ -237,9 +271,9 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
       SET balance = balance - (OLD.amount + OLD.fee)
       WHERE channel = 'PHYSICAL_CASH' AND (OLD.type = 'E_LOAD' OR OLD.type = 'TV_LOAD') AND OLD.is_debt = 0;
 
-      -- DEBT_PAYMENT: selected channel (where they paid) decreases by paid amount
+      -- DEBT_PAYMENT: selected channel decreases by principal paid plus extra profit received
       UPDATE wallets
-      SET balance = balance - OLD.amount
+      SET balance = balance - OLD.amount - OLD.fee
       WHERE channel = OLD.channel AND OLD.type = 'DEBT_PAYMENT';
     END;
   `);
@@ -284,9 +318,9 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
       SET balance = balance - (OLD.amount + OLD.fee)
       WHERE channel = 'PHYSICAL_CASH' AND (OLD.type = 'E_LOAD' OR OLD.type = 'TV_LOAD') AND OLD.is_debt = 0;
 
-      -- DEBT_PAYMENT: selected channel (where they paid) decreases by paid amount
+      -- DEBT_PAYMENT: selected channel decreases by principal paid plus extra profit received
       UPDATE wallets
-      SET balance = balance - OLD.amount
+      SET balance = balance - OLD.amount - OLD.fee
       WHERE channel = OLD.channel AND OLD.type = 'DEBT_PAYMENT';
 
 
@@ -321,9 +355,9 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
       SET balance = balance + NEW.amount + NEW.fee
       WHERE channel = 'PHYSICAL_CASH' AND (NEW.type = 'E_LOAD' OR NEW.type = 'TV_LOAD') AND NEW.is_debt = 0;
 
-      -- DEBT_PAYMENT: selected channel (where they pay) increases by paid amount
+      -- DEBT_PAYMENT: selected channel increases by principal paid plus extra profit received
       UPDATE wallets
-      SET balance = balance + NEW.amount
+      SET balance = balance + NEW.amount + NEW.fee
       WHERE channel = NEW.channel AND NEW.type = 'DEBT_PAYMENT';
     END;
   `);
@@ -388,5 +422,6 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
     }
   }
 
+  await repairDebtPaymentFeeWalletCredits(db);
   await repairBrokenDebtPayments(db);
 }

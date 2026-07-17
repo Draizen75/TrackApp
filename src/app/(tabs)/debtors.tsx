@@ -156,10 +156,20 @@ export default function DebtorsScreen() {
 
   const submitSettlement = async () => {
     if (!selectedDebtor || settleMutation.isPending) return; // Prevent double trigger
-    const amount = parseFloat(settleAmount);
+    const parsedAmount = parseFloat(settleAmount);
+    const amount = Number.isFinite(parsedAmount) ? parsedAmount : 0;
+    const profit = parseFloat(settleProfit) || 0;
 
-    if (isNaN(amount) || amount <= 0 || amount > selectedDebtor.balance) {
-      Alert.alert("Invalid Amount", "Please enter a valid amount between 0 and " + selectedDebtor.balance);
+    if (amount < 0 || profit < 0) {
+      Alert.alert("Invalid Amount", "Please enter non-negative amounts.");
+      return;
+    }
+    if (amount === 0 && profit <= 0) {
+      Alert.alert("Invalid Amount", "Enter a principal payment or an extra profit/interest payment.");
+      return;
+    }
+    if (amount > selectedDebtor.balance) {
+      Alert.alert("Invalid Amount", "Principal payment cannot exceed the debtor balance of " + selectedDebtor.balance);
       return;
     }
 
@@ -167,8 +177,6 @@ export default function DebtorsScreen() {
       if (process.env.EXPO_OS !== 'web') {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
-
-      const profit = parseFloat(settleProfit) || 0;
 
       await settleMutation.mutateAsync({
         customer_id: selectedDebtor.id,
@@ -182,6 +190,10 @@ export default function DebtorsScreen() {
       const name = selectedDebtor.name;
       setSelectedDebtor(null);
       refetch();
+      if (amount === 0) {
+        showToast(`Recorded PHP ${profit.toFixed(2)} interest for ${name}. Debt principal unchanged.`, 'success');
+        return;
+      }
       showToast(`Settled ₱${amount.toFixed(2)} for ${name}.`, 'success');
     } catch (e: any) {
       Alert.alert("Error", cleanErrorMessage(e));
@@ -635,6 +647,7 @@ export default function DebtorsScreen() {
                     {debtorLedgerHistory.map((tx) => {
                       const isPayment = tx.type === 'DEBT_PAYMENT';
                       const txTotal = isPayment ? tx.amount : (tx.amount + (tx.deduct_fee === 1 ? 0 : tx.fee));
+                      const isInterestOnlyPayment = isPayment && tx.amount === 0 && tx.fee > 0;
                       const formattedDate = tx.created_at
                         ? new Date(tx.created_at).toLocaleDateString('en-US', {
                             month: 'short',
@@ -669,7 +682,7 @@ export default function DebtorsScreen() {
                                 borderColor: isPayment ? 'rgba(90,155,110,0.15)' : 'rgba(220,107,90,0.15)'
                               }}>
                                 <Text style={{ color: isPayment ? C.success : C.danger, fontSize: 7, fontWeight: '900', textTransform: 'uppercase' }}>
-                                  {isPayment ? 'Payment' : 'Debt'}
+                                  {isInterestOnlyPayment ? 'Interest' : isPayment ? 'Payment' : 'Debt'}
                                 </Text>
                               </View>
                               <Text style={{ color: C.text1, fontSize: 12, fontWeight: '700' }}>
@@ -683,6 +696,11 @@ export default function DebtorsScreen() {
                             <Text style={{ color: isPayment ? C.success : C.danger, fontSize: 13, fontWeight: '800' }}>
                               {isPayment ? '-' : '+'}₱{txTotal.toFixed(2)}
                             </Text>
+                            {isPayment && tx.fee > 0 && (
+                              <Text style={{ color: C.accent, fontSize: 8 }}>
+                                Profit paid PHP {tx.fee.toFixed(2)}
+                              </Text>
+                            )}
                             {!isPayment && tx.fee > 0 && (
                               <Text style={{ color: C.text3, fontSize: 8 }}>
                                 {tx.deduct_fee === 1 ? `Deducted ₱${tx.fee.toFixed(2)} fee` : `Inc. ₱${tx.fee.toFixed(2)} fee`}
@@ -742,6 +760,8 @@ export default function DebtorsScreen() {
                 keyboardType="decimal-pad"
                 value={settleAmount}
                 onChangeText={setSettleAmount}
+                placeholder="0.00"
+                placeholderTextColor={C.text3}
                 editable={!settleMutation.isPending}
               />
 

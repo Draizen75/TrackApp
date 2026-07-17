@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { migrateDbIfNeeded } from '@/db/db';
 import { useSQLiteContext } from 'expo-sqlite';
 
 export function cleanErrorMessage(error: any): string {
@@ -82,6 +83,17 @@ export interface ExportData {
   transactions: (Transaction & { customer_name?: string | null })[];
   expenses: Expense[];
   debtors: Debtor[];
+}
+
+export interface BackupData {
+  schema: 'trackapp.backup';
+  version: 1;
+  exported_at: string;
+  customers: Customer[];
+  transactions: Transaction[];
+  expenses: Expense[];
+  wallets: Wallet[];
+  settings: Record<string, string>;
 }
 
 // ─── WEB MOCK DATABASE ENGINE (localStorage backed for offline preview support) ───
@@ -657,14 +669,22 @@ function useWebDbQueries() {
           if (tx.is_debt && !tx.customer_id) {
             throw new Error('Debtor name is required for credit transactions.');
           }
+          if (tx.amount < 0 || tx.fee < 0) {
+            throw new Error('Transaction amount and fee must be non-negative.');
+          }
           if (tx.type === 'DEBT_PAYMENT') {
             if (!tx.customer_id) {
               throw new Error('Debt payment must stay linked to a debtor.');
+            }
+            if (tx.amount === 0 && tx.fee <= 0) {
+              throw new Error('Debt payment must include a principal payment or extra profit/interest.');
             }
             const outstanding = getDebtBalanceForCustomer(db.transactions, tx.customer_id, tx.id);
             if (tx.amount - outstanding > 0.01) {
               throw new Error(`Debt payment cannot exceed the outstanding balance of ${outstanding.toFixed(2)}.`);
             }
+          } else if (tx.amount <= 0) {
+            throw new Error('Transaction amount must be greater than 0.');
           }
 
           // Dry run balances check
@@ -724,6 +744,12 @@ function useWebDbQueries() {
       mutationFn: async ({ customer_id, amount, channel, profit }: { customer_id: number; amount: number; channel: string; profit?: number }) => {
         const db = getWebDb();
         const extraProfit = profit || 0;
+        if (amount < 0 || extraProfit < 0) {
+          throw new Error('Debt payment amount and extra profit/interest must be non-negative.');
+        }
+        if (amount === 0 && extraProfit <= 0) {
+          throw new Error('Debt payment must include a principal payment or extra profit/interest.');
+        }
         const newTx = {
           id: db.transactions.length + 1,
           type: 'DEBT_PAYMENT' as const,
@@ -945,6 +971,55 @@ function useWebDbQueries() {
     });
   };
 
+  const useBackupData = () => {
+    return useQuery({
+      queryKey: ['backup_data'],
+      queryFn: async (): Promise<BackupData> => {
+        const db = getWebDb();
+        return {
+          schema: 'trackapp.backup',
+          version: 1,
+          exported_at: new Date().toISOString(),
+          customers: [...(db.customers || [])],
+          transactions: [...(db.transactions || [])],
+          expenses: [...(db.expenses || [])],
+          wallets: Object.entries(db.wallets || {}).map(([channel, balance]) => ({
+            channel,
+            balance: Number(balance) || 0,
+          })),
+          settings: { ...(db.settings || defaultWebDb.settings) },
+        };
+      },
+      enabled: false,
+    });
+  };
+
+  const useRestoreBackup = () => {
+    return useMutation({
+      mutationFn: async (backup: BackupData) => {
+        if (backup.schema !== 'trackapp.backup' || backup.version !== 1) {
+          throw new Error('This is not a supported TrackApp backup file.');
+        }
+        const wallets = backup.wallets.reduce<Record<string, number>>((acc, wallet) => {
+          const channel = String(wallet.channel || '').trim();
+          if (channel) acc[channel] = Number(wallet.balance) || 0;
+          return acc;
+        }, {});
+        const restoredDb = {
+          customers: backup.customers || [],
+          transactions: backup.transactions || [],
+          expenses: backup.expenses || [],
+          wallets: { ...defaultWebDb.wallets, ...wallets },
+          settings: { ...defaultWebDb.settings, ...(backup.settings || {}) },
+        };
+        saveWebDb(restoredDb);
+      },
+      onSuccess: () => {
+        queryClient.invalidateQueries();
+      },
+    });
+  };
+
   return {
     useDashboardData,
     useCustomers,
@@ -953,6 +1028,8 @@ function useWebDbQueries() {
     useWallets,
     useTransactions,
     useExportData,
+    useBackupData,
+    useRestoreBackup,
     useAddCustomer,
     useDeleteCustomer,
     useUpdateCustomerMeta,
@@ -1323,9 +1400,15 @@ export function useDbQueries() {
         if (tx.is_debt && !tx.customer_id) {
           throw new Error('Debtor name is required for credit transactions.');
         }
+        if (tx.amount < 0 || tx.fee < 0) {
+          throw new Error('Transaction amount and fee must be non-negative.');
+        }
         if (tx.type === 'DEBT_PAYMENT') {
           if (!tx.customer_id) {
             throw new Error('Debt payment must stay linked to a debtor.');
+          }
+          if (tx.amount === 0 && tx.fee <= 0) {
+            throw new Error('Debt payment must include a principal payment or extra profit/interest.');
           }
           const debtResult = await db.getFirstAsync<{ balance: number }>(
             `
@@ -1341,6 +1424,8 @@ export function useDbQueries() {
           if (tx.amount - outstanding > 0.01) {
             throw new Error(`Debt payment cannot exceed the outstanding balance of ${outstanding.toFixed(2)}.`);
           }
+        } else if (tx.amount <= 0) {
+          throw new Error('Transaction amount must be greater than 0.');
         }
         await db.runAsync(
           "UPDATE transactions SET type = ?, amount = ?, fee = ?, channel = ?, customer_id = ?, is_debt = ?, deduct_fee = ? WHERE id = ?",
@@ -1387,6 +1472,12 @@ export function useDbQueries() {
       }) => {
         const createdAt = new Date().toISOString();
         const extraProfit = profit || 0;
+        if (amount < 0 || extraProfit < 0) {
+          throw new Error('Debt payment amount and extra profit/interest must be non-negative.');
+        }
+        if (amount === 0 && extraProfit <= 0) {
+          throw new Error('Debt payment must include a principal payment or extra profit/interest.');
+        }
         // A debt payment is recorded as a transaction of type DEBT_PAYMENT
         // It increases the float of the selected channel and decreases the customer's balance.
         // The `profit` (extra fee) is stored as fee for profit tracking.
@@ -1608,6 +1699,148 @@ export function useDbQueries() {
     });
   };
 
+  const useBackupData = () => {
+    return useQuery({
+      queryKey: ['backup_data'],
+      queryFn: async (): Promise<BackupData> => {
+        const customers = await db.getAllAsync<Customer>(
+          "SELECT id, name, phone, notes, follow_up_status, last_reminded_at, created_at FROM customers ORDER BY id ASC"
+        );
+        const transactions = await db.getAllAsync<Transaction>(
+          "SELECT id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, created_at FROM transactions ORDER BY id ASC"
+        );
+        const expenses = await db.getAllAsync<Expense>(
+          "SELECT id, description, category, amount, channel, created_at FROM expenses ORDER BY id ASC"
+        );
+        const wallets = await db.getAllAsync<Wallet>(
+          "SELECT channel, balance FROM wallets ORDER BY channel ASC"
+        );
+        const settingsRows = await db.getAllAsync<{ key: string; value: string }>(
+          "SELECT key, value FROM settings"
+        );
+        const settings: Record<string, string> = {};
+        for (const row of settingsRows) {
+          settings[row.key] = row.value;
+        }
+        return {
+          schema: 'trackapp.backup',
+          version: 1,
+          exported_at: new Date().toISOString(),
+          customers,
+          transactions,
+          expenses,
+          wallets,
+          settings,
+        };
+      },
+      enabled: false,
+    });
+  };
+
+  const useRestoreBackup = () => {
+    return useMutation({
+      mutationFn: async (backup: BackupData) => {
+        if (backup.schema !== 'trackapp.backup' || backup.version !== 1) {
+          throw new Error('This is not a supported TrackApp backup file.');
+        }
+        if (!Array.isArray(backup.customers) || !Array.isArray(backup.transactions) || !Array.isArray(backup.expenses) || !Array.isArray(backup.wallets)) {
+          throw new Error('Backup file is missing required ledger data.');
+        }
+
+        await db.execAsync(`
+          DROP TRIGGER IF EXISTS tr_transaction_insert;
+          DROP TRIGGER IF EXISTS tr_transaction_delete;
+          DROP TRIGGER IF EXISTS tr_transaction_update;
+          DROP TRIGGER IF EXISTS tr_expense_insert;
+          DROP TRIGGER IF EXISTS tr_expense_delete;
+          DROP TRIGGER IF EXISTS tr_wallet_balance_guard;
+        `);
+
+        try {
+          await db.withTransactionAsync(async () => {
+            await db.execAsync("DELETE FROM transactions");
+            await db.execAsync("DELETE FROM expenses");
+            await db.execAsync("DELETE FROM customers");
+            await db.execAsync("DELETE FROM wallets");
+            await db.execAsync("DELETE FROM settings");
+
+            for (const customer of backup.customers) {
+              await db.runAsync(
+                "INSERT INTO customers (id, name, phone, notes, follow_up_status, last_reminded_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [
+                  Number(customer.id),
+                  String(customer.name || '').trim(),
+                  customer.phone ?? null,
+                  customer.notes ?? null,
+                  customer.follow_up_status || 'active',
+                  customer.last_reminded_at ?? null,
+                  customer.created_at || new Date().toISOString(),
+                ]
+              );
+            }
+
+            for (const wallet of backup.wallets) {
+              const channel = String(wallet.channel || '').trim();
+              if (!channel) continue;
+              await db.runAsync(
+                "INSERT INTO wallets (channel, balance) VALUES (?, ?)",
+                [channel, Number(wallet.balance) || 0]
+              );
+            }
+
+            for (const tx of backup.transactions) {
+              await db.runAsync(
+                "INSERT INTO transactions (id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                  Number(tx.id),
+                  tx.type,
+                  Number(tx.amount) || 0,
+                  Number(tx.fee) || 0,
+                  tx.channel,
+                  tx.customer_id ?? null,
+                  tx.is_debt ? 1 : 0,
+                  tx.deduct_fee ? 1 : 0,
+                  tx.created_at || new Date().toISOString(),
+                ]
+              );
+            }
+
+            for (const exp of backup.expenses) {
+              await db.runAsync(
+                "INSERT INTO expenses (id, description, category, amount, channel, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                [
+                  Number(exp.id),
+                  exp.description || 'Expense',
+                  exp.category || 'OTHER',
+                  Number(exp.amount) || 0,
+                  exp.channel,
+                  exp.created_at || new Date().toISOString(),
+                ]
+              );
+            }
+
+            for (const [key, value] of Object.entries(backup.settings || {})) {
+              await db.runAsync(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                [key, String(value)]
+              );
+            }
+
+            await db.runAsync(
+              "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+              ['debt_payment_fee_wallet_repair_v1', 'done']
+            );
+          });
+        } finally {
+          await migrateDbIfNeeded(db);
+        }
+      },
+      onSuccess: () => {
+        queryClient.invalidateQueries();
+      },
+    });
+  };
+
   return {
     useDashboardData,
     useCustomers,
@@ -1616,6 +1849,8 @@ export function useDbQueries() {
     useWallets,
     useTransactions,
     useExportData,
+    useBackupData,
+    useRestoreBackup,
     useAddCustomer,
     useDeleteCustomer,
     useUpdateCustomerMeta,

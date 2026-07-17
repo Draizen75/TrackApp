@@ -175,12 +175,21 @@ export default function HistoryScreen() {
     const parsedAmount = parseFloat(editAmount);
     const parsedFee = parseFloat(editFee);
 
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      Alert.alert("Input Error", "Please enter a valid amount greater than 0.");
-      return;
-    }
     if (isNaN(parsedFee) || parsedFee < 0) {
       Alert.alert("Input Error", "Please enter a valid non-negative fee.");
+      return;
+    }
+    if (isNaN(parsedAmount) || parsedAmount < 0) {
+      Alert.alert("Input Error", "Please enter a valid non-negative amount.");
+      return;
+    }
+    if (selectedTx.type === 'DEBT_PAYMENT') {
+      if (parsedAmount === 0 && parsedFee <= 0) {
+        Alert.alert("Input Error", "Enter a principal payment or an extra profit/interest payment.");
+        return;
+      }
+    } else if (parsedAmount <= 0) {
+      Alert.alert("Input Error", "Please enter a valid amount greater than 0.");
       return;
     }
 
@@ -498,7 +507,7 @@ export default function HistoryScreen() {
               {/* Amount and Fee Row */}
               <View style={{ flexDirection: 'row', gap: 16 }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>Amount (₱)</Text>
+                  <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>{selectedTx?.type === 'DEBT_PAYMENT' ? 'Principal Payment (PHP)' : 'Amount (PHP)'}</Text>
                   <TextInput
                     style={{
                       backgroundColor: C.bg,
@@ -518,7 +527,7 @@ export default function HistoryScreen() {
                   />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>Fee (₱)</Text>
+                  <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>{selectedTx?.type === 'DEBT_PAYMENT' ? 'Extra Profit / Interest (PHP)' : 'Fee (PHP)'}</Text>
                   <TextInput
                     style={{
                       backgroundColor: C.bg,

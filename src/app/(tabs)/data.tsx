@@ -1,5 +1,5 @@
 import { useToast } from '@/components/toast';
-import { cleanErrorMessage, useDbQueries } from '@/hooks/useDbQueries';
+import { BackupData, cleanErrorMessage, useDbQueries } from '@/hooks/useDbQueries';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import * as Sharing from 'expo-sharing';
@@ -12,6 +12,7 @@ import {
   Share2,
   Trash2,
   TrendingUp,
+  Upload,
   X
 } from 'lucide-react-native';
 import React, { useState } from 'react';
@@ -108,16 +109,20 @@ export default function DataScreen() {
     useSettings,
     useUpdateSettings,
     useExportData,
+    useBackupData,
+    useRestoreBackup,
     useAddWallet,
     useDeleteWallet,
   } = useDbQueries();
   const { data: dashboardData, refetch: refetchDashboard } = useDashboardData();
   const { data: settings } = useSettings();
   const { refetch: refetchExportData } = useExportData();
+  const { refetch: refetchBackupData } = useBackupData();
   const updateWalletMutation = useUpdateWalletBalance();
   const addWalletMutation = useAddWallet();
   const deleteWalletMutation = useDeleteWallet();
   const resetDbMutation = useResetDatabase();
+  const restoreBackupMutation = useRestoreBackup();
   const updateSettingsMutation = useUpdateSettings();
 
   const handleDeleteWallet = (channel: string) => {
@@ -151,6 +156,9 @@ export default function DataScreen() {
   const [newBalance, setNewBalance] = useState('');
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isBackupExporting, setIsBackupExporting] = useState(false);
+  const [restoreModalVisible, setRestoreModalVisible] = useState(false);
+  const [backupJson, setBackupJson] = useState('');
 
   // New wallet creations states
   const [addWalletModalVisible, setAddWalletModalVisible] = useState(false);
@@ -549,6 +557,90 @@ export default function DataScreen() {
     }
   };
 
+  const handleExportBackup = async () => {
+    if (isBackupExporting) return;
+    try {
+      setIsBackupExporting(true);
+      if (process.env.EXPO_OS !== 'web') {
+        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
+
+      const result = await refetchBackupData();
+      const backupData = result.data;
+      if (!backupData) {
+        Alert.alert("Backup Failed", "Could not retrieve data for backup.");
+        return;
+      }
+
+      const jsonString = JSON.stringify(backupData, null, 2);
+      const filename = `trackapp_backup_${new Date().toISOString().split('T')[0]}.json`;
+
+      if (process.env.EXPO_OS === 'web') {
+        const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', filename);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        showToast("JSON backup exported successfully!", "success");
+      } else {
+        const fileUri = FileSystem.documentDirectory + filename;
+        await FileSystem.writeAsStringAsync(fileUri, jsonString, {
+          encoding: FileSystem.EncodingType.UTF8,
+        });
+        if (await Sharing.isAvailableAsync()) {
+          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          await Sharing.shareAsync(fileUri);
+        } else {
+          Alert.alert("Saved Locally", `JSON backup exported to:\n${fileUri}`);
+        }
+      }
+    } catch (e: any) {
+      Alert.alert("Backup Failed", e.message || "An error occurred during JSON backup export.");
+    } finally {
+      setIsBackupExporting(false);
+    }
+  };
+
+  const handleRestoreBackup = () => {
+    let parsed: BackupData;
+    try {
+      parsed = JSON.parse(backupJson.trim()) as BackupData;
+    } catch {
+      Alert.alert("Invalid Backup", "Paste the full JSON backup content before restoring.");
+      return;
+    }
+
+    Alert.alert(
+      "Restore Backup?",
+      "This will replace all current customers, transactions, expenses, wallets, and settings with the pasted backup.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Restore",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              if (process.env.EXPO_OS !== 'web') {
+                await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+              }
+              await restoreBackupMutation.mutateAsync(parsed);
+              setBackupJson('');
+              setRestoreModalVisible(false);
+              refetchDashboard();
+              showToast("Backup restored successfully.", "success");
+            } catch (err: any) {
+              Alert.alert("Restore Failed", cleanErrorMessage(err));
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleResetDatabase = () => {
     Alert.alert(
       "☢️ SYSTEM DATABASE RESET",
@@ -907,7 +999,7 @@ export default function DataScreen() {
             <Text style={{ color: C.text1, fontSize: 14, fontWeight: '700' }}>Admin Utilities</Text>
           </View>
           <Text style={{ color: C.text2, fontSize: 12, marginBottom: 18, lineHeight: 17 }}>
-            Secure your store accounts by exporting reports or resetting metrics back to defaults.
+            Secure your store accounts with CSV reports, JSON backups, and restore tools.
           </Text>
 
           {/* Export CSV */}
@@ -932,6 +1024,52 @@ export default function DataScreen() {
             </Text>
           </TouchableOpacity>
 
+          {/* Export JSON Backup */}
+          <TouchableOpacity
+            onPress={handleExportBackup}
+            disabled={isBackupExporting}
+            style={{
+              width: '100%',
+              paddingVertical: 14,
+              backgroundColor: C.accent,
+              borderRadius: 16,
+              flexDirection: 'row',
+              justifyContent: 'center',
+              alignItems: 'center',
+              marginBottom: 12,
+              opacity: isBackupExporting ? 0.6 : 1,
+            }}
+          >
+            <Database size={16} color={C.bg} style={{ marginRight: 6 }} />
+            <Text style={{ color: C.bg, fontWeight: '800', fontSize: 12, letterSpacing: 1.5, textTransform: 'uppercase' }}>
+              {isBackupExporting ? 'Backing Up...' : 'Export JSON Backup'}
+            </Text>
+          </TouchableOpacity>
+
+          {/* Restore JSON Backup */}
+          <TouchableOpacity
+            onPress={() => setRestoreModalVisible(true)}
+            disabled={restoreBackupMutation.isPending}
+            style={{
+              width: '100%',
+              paddingVertical: 14,
+              backgroundColor: C.bg,
+              borderWidth: 1,
+              borderColor: 'rgba(230,168,23,0.35)',
+              borderRadius: 16,
+              flexDirection: 'row',
+              justifyContent: 'center',
+              alignItems: 'center',
+              marginBottom: 12,
+              opacity: restoreBackupMutation.isPending ? 0.6 : 1,
+            }}
+          >
+            <Upload size={16} color={C.accent} style={{ marginRight: 6 }} />
+            <Text style={{ color: C.accent, fontWeight: '700', fontSize: 12, letterSpacing: 1, textTransform: 'uppercase' }}>
+              Restore JSON Backup
+            </Text>
+          </TouchableOpacity>
+
           {/* Wipe Database */}
           <TouchableOpacity
             onPress={handleResetDatabase}
@@ -953,6 +1091,84 @@ export default function DataScreen() {
             </Text>
           </TouchableOpacity>
         </View>
+
+        {/* Restore JSON Backup Modal */}
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={restoreModalVisible}
+          onRequestClose={() => setRestoreModalVisible(false)}
+        >
+          <KeyboardAvoidingView
+            behavior='padding'
+            style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 20, backgroundColor: 'rgba(18, 16, 14, 0.85)' }}
+          >
+            <View style={{ backgroundColor: C.surface, borderRadius: 28, borderWidth: 1, borderColor: C.border, padding: 24, paddingBottom: 28, maxHeight: '82%' }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+                <View style={{ flex: 1, paddingRight: 12 }}>
+                  <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase' }}>Restore Backup</Text>
+                  <Text style={{ color: C.text1, fontSize: 18, fontWeight: '800', marginTop: 2 }}>Paste JSON Backup</Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setRestoreModalVisible(false)}
+                  disabled={restoreBackupMutation.isPending}
+                  style={{ padding: 8, backgroundColor: C.surface2, borderRadius: 20, borderWidth: 1, borderColor: C.border, opacity: restoreBackupMutation.isPending ? 0.5 : 1 }}
+                >
+                  <X size={18} color={C.text2} />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={{ color: C.text3, fontSize: 11, lineHeight: 16, marginBottom: 12 }}>
+                Paste the full contents of a TrackApp JSON backup file. Restoring replaces the current local ledger.
+              </Text>
+
+              <TextInput
+                style={{
+                  minHeight: 220,
+                  maxHeight: 320,
+                  backgroundColor: C.bg,
+                  borderWidth: 1,
+                  borderColor: C.border,
+                  color: C.text1,
+                  borderRadius: 16,
+                  paddingHorizontal: 14,
+                  paddingVertical: 12,
+                  fontSize: 12,
+                  marginBottom: 18,
+                  textAlignVertical: 'top',
+                }}
+                multiline
+                value={backupJson}
+                onChangeText={setBackupJson}
+                placeholder='{"schema":"trackapp.backup", ...}'
+                placeholderTextColor={C.text3}
+                editable={!restoreBackupMutation.isPending}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+
+              <TouchableOpacity
+                onPress={handleRestoreBackup}
+                disabled={restoreBackupMutation.isPending}
+                style={{
+                  width: '100%',
+                  paddingVertical: 16,
+                  backgroundColor: C.accent,
+                  borderRadius: 16,
+                  flexDirection: 'row',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  opacity: restoreBackupMutation.isPending ? 0.6 : 1,
+                }}
+              >
+                <Upload size={18} color={C.bg} style={{ marginRight: 8 }} />
+                <Text style={{ color: C.bg, fontWeight: '800', fontSize: 13, letterSpacing: 1.5, textTransform: 'uppercase' }}>
+                  {restoreBackupMutation.isPending ? 'Restoring...' : 'Restore Backup'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
 
         {/* Custom Edit Float Modal */}
         <Modal

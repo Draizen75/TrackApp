@@ -54,15 +54,13 @@ type EntryFormValues = z.infer<typeof entrySchema>;
 export default function EntryScreen() {
   const { showToast } = useToast();
   const { debtorId, debtorName } = useLocalSearchParams<{ debtorId?: string; debtorName?: string }>();
-  const { useCustomers, useAddCustomer, useAddTransaction, useSettings, useWallets, useTransactions, useDebtors } = useDbQueries();
+  const { useCustomers, useAddCustomer, useAddTransaction, useSettings, useWallets, useDebtors } = useDbQueries();
   const { data: customers = [], refetch: refetchCustomers } = useCustomers();
   const { data: settings } = useSettings();
   const { data: wallets = [] } = useWallets();
-  const { data: transactions = [] } = useTransactions();
   const { data: debtors = [] } = useDebtors();
   const addCustomerMutation = useAddCustomer();
   const addTransactionMutation = useAddTransaction();
-  const amountPresets = [100, 200, 500, 1000];
 
   const getWalletLabel = (channel: string) => {
     const upper = channel.toUpperCase();
@@ -168,25 +166,6 @@ export default function EntryScreen() {
     setValue('customerName', name);
     setCustomerSearchQuery(name);
     setShowCustomerDropdown(false);
-  };
-
-  const applyLastTransaction = async () => {
-    const lastTx = transactions.find((tx) => tx.type !== 'DEBT_PAYMENT');
-    if (!lastTx) return;
-    if (process.env.EXPO_OS !== 'web') {
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
-    setValue('type', lastTx.type === 'DEBT_PAYMENT' ? 'CASH_IN' : lastTx.type);
-    setValue('amount', String(lastTx.amount));
-    setValue('fee', String(lastTx.fee));
-    setValue('channel', lastTx.channel);
-    setValue('deduct_fee', lastTx.deduct_fee === 1);
-    setValue('is_debt', lastTx.is_debt === 1);
-    if (lastTx.is_debt === 1 && lastTx.customer_id && lastTx.customer_name) {
-      setSelectedCustomerId(lastTx.customer_id);
-      setValue('customerName', lastTx.customer_name);
-      setCustomerSearchQuery(lastTx.customer_name);
-    }
   };
 
   const getGhostPreview = () => {
@@ -373,25 +352,6 @@ export default function EntryScreen() {
             </View>
 
             {/* 2. Amount Input & Fee Input */}
-            <View style={{ marginBottom: 10 }}>
-              <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase' }}>
-                Fast Amount Presets
-              </Text>
-              <TouchableOpacity onPress={applyLastTransaction} style={{ alignSelf: 'flex-start', marginTop: 10, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: C.border, backgroundColor: C.bg }}>
-                <Text style={{ color: C.text2, fontSize: 10, fontWeight: '700' }}>Repeat Last</Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 14 }}>
-              {amountPresets.map((preset) => (
-                <TouchableOpacity
-                  key={preset}
-                  onPress={() => setValue('amount', String(preset))}
-                  style={{ backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8 }}
-                >
-                  <Text style={{ color: C.text2, fontSize: 11, fontWeight: '700' }}>PHP {preset}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
             <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
               <View style={{ flex: 3 }}>
                 <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>
