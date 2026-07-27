@@ -58,7 +58,7 @@ export default function DebtorsScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [showSettledList, setShowSettledList] = useState(false);
-  const [sortMode, setSortMode] = useState<'overdue' | 'largest' | 'recent_payment'>('overdue');
+  const [sortMode, setSortMode] = useState<'overdue' | 'recent_activity' | 'largest' | 'recent_payment'>('overdue');
 
   const handleSendSMS = async (debtor: Debtor) => {
     if (process.env.EXPO_OS !== 'web') {
@@ -145,6 +145,7 @@ export default function DebtorsScreen() {
     if (process.env.EXPO_OS !== 'web') {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
+    setDetailModalVisible(false);
     router.push({
       pathname: '/entry',
       params: {
@@ -244,6 +245,11 @@ export default function DebtorsScreen() {
     const base = filteredDebtors.filter(d => d.balance > 0);
     return [...base].sort((a, b) => {
       if (sortMode === 'largest') return b.balance - a.balance;
+      if (sortMode === 'recent_activity') {
+        const timeA = a.latest_tx_date ? new Date(a.latest_tx_date).getTime() : 0;
+        const timeB = b.latest_tx_date ? new Date(b.latest_tx_date).getTime() : 0;
+        return timeB - timeA;
+      }
       if (sortMode === 'recent_payment') {
         return new Date(b.last_payment_date || 0).getTime() - new Date(a.last_payment_date || 0).getTime();
       }
@@ -368,6 +374,7 @@ export default function DebtorsScreen() {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingTop: 10, paddingRight: 8 }}>
               {[
                 { key: 'overdue', label: 'Overdue' },
+                { key: 'recent_activity', label: 'Recent Active' },
                 { key: 'largest', label: 'Largest' },
                 { key: 'recent_payment', label: 'Recent Pay' },
               ].map((option) => {

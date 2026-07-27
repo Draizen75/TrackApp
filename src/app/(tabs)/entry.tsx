@@ -1,10 +1,10 @@
-import { useDbQueries, cleanErrorMessage } from '@/hooks/useDbQueries';
+import { useDbQueries, cleanErrorMessage, Debtor } from '@/hooks/useDbQueries';
 import { useToast } from '@/components/toast';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useFocusEffect, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { PlusCircle, Search, UserPlus } from 'lucide-react-native';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { KeyboardAvoidingView, ScrollView, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -38,12 +38,12 @@ const clearZeroIfNeeded = (value: string, setter: (value: string) => void) => {
 const entrySchema = z.object({
   type: z.enum(['CASH_IN', 'CASH_OUT', 'E_LOAD', 'TV_LOAD']),
   amount: z.string().refine((val) => !isNaN(parseFloat(val)) && parseFloat(val) > 0, {
-    message: "Base amount must be greater than 0",
+    message: 'Base amount must be greater than 0',
   }),
   fee: z.string().refine((val) => !isNaN(parseFloat(val)) && parseFloat(val) >= 0, {
-    message: "Fee must be a valid number",
+    message: 'Fee must be a valid number',
   }),
-  channel: z.string().min(1, "Please select a channel"),
+  channel: z.string().min(1, 'Please select a channel'),
   is_debt: z.boolean(),
   deduct_fee: z.boolean(),
   customerName: z.string().optional(),
@@ -52,6 +52,7 @@ const entrySchema = z.object({
 type EntryFormValues = z.infer<typeof entrySchema>;
 
 export default function EntryScreen() {
+  const router = useRouter();
   const { showToast } = useToast();
   const { debtorId, debtorName } = useLocalSearchParams<{ debtorId?: string; debtorName?: string }>();
   const { useCustomers, useAddCustomer, useAddTransaction, useSettings, useWallets, useDebtors } = useDbQueries();
@@ -132,34 +133,45 @@ export default function EntryScreen() {
     setValue('channel', 'GCASH');
   }, [txType, setValue]);
 
-  useEffect(() => {
-    if (!debtorId && !debtorName) return;
+  // Screen Focus Effect: Auto-select debtor when navigated from Debtors screen
+  useFocusEffect(
+    useCallback(() => {
+      if (debtorId || debtorName) {
+        const parsedDebtorId = debtorId ? parseInt(debtorId, 10) : NaN;
+        const matchedCustomer = !isNaN(parsedDebtorId)
+          ? customers.find((c: any) => c.id === parsedDebtorId)
+          : customers.find((c: any) => c.name.toLowerCase() === (debtorName || '').toLowerCase());
 
-    const parsedDebtorId = debtorId ? parseInt(debtorId, 10) : NaN;
-    const matchedCustomer = !isNaN(parsedDebtorId)
-      ? customers.find((c: any) => c.id === parsedDebtorId)
-      : customers.find((c: any) => c.name.toLowerCase() === (debtorName || '').toLowerCase());
+        setValue('is_debt', true);
+        setShowCustomerDropdown(false);
 
-    setValue('is_debt', true);
-    setShowCustomerDropdown(false);
+        if (matchedCustomer) {
+          setSelectedCustomerId(matchedCustomer.id);
+          setValue('customerName', matchedCustomer.name);
+          setCustomerSearchQuery(matchedCustomer.name);
+        } else if (debtorName) {
+          setSelectedCustomerId(!isNaN(parsedDebtorId) ? parsedDebtorId : null);
+          setValue('customerName', debtorName);
+          setCustomerSearchQuery(debtorName);
+        }
 
-    if (matchedCustomer) {
-      setSelectedCustomerId(matchedCustomer.id);
-      setValue('customerName', matchedCustomer.name);
-      setCustomerSearchQuery(matchedCustomer.name);
-      return;
-    }
-
-    if (debtorName) {
-      setSelectedCustomerId(!isNaN(parsedDebtorId) ? parsedDebtorId : null);
-      setValue('customerName', debtorName);
-      setCustomerSearchQuery(debtorName);
-    }
-  }, [customers, debtorId, debtorName, setValue]);
+        // Consume route parameters so repeated navigation or tab switches reliably auto-select debtor
+        router.setParams({ debtorId: undefined, debtorName: undefined });
+      }
+    }, [debtorId, debtorName, customers, setValue, router])
+  );
 
   const filteredCustomers = customers.filter((c: any) =>
     c.name.toLowerCase().includes(customerSearchQuery.toLowerCase())
   );
+
+  const realRecentDebtors = useMemo(() => {
+    return [...debtors].sort((a, b) => {
+      const timeA = a.latest_tx_date ? new Date(a.latest_tx_date).getTime() : 0;
+      const timeB = b.latest_tx_date ? new Date(b.latest_tx_date).getTime() : 0;
+      return timeB - timeA;
+    });
+  }, [debtors]);
 
   const selectCustomer = (id: number, name: string) => {
     setSelectedCustomerId(id);
@@ -228,7 +240,7 @@ export default function EntryScreen() {
         const exactMatch = customers.find((c: any) => c.name.toLowerCase() === trimmedName.toLowerCase());
         if (exactMatch) {
           finalCustomerId = exactMatch.id;
-        } else {
+        } else if (finalCustomerId === null) {
           if (process.env.EXPO_OS !== 'web') {
             await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           }
@@ -319,7 +331,6 @@ export default function EntryScreen() {
                   <View style={{ flexDirection: 'row', backgroundColor: C.bg, padding: 6, borderRadius: 16, borderWidth: 1, borderColor: C.border, gap: 4 }}>
                     {(['CASH_IN', 'CASH_OUT', 'E_LOAD', 'TV_LOAD'] as const).map((t) => {
                       const isActive = value === t;
-                      const labels = { CASH_IN: 'Cash In', CASH_OUT: 'Cash Out', E_LOAD: 'E-Load', TV_LOAD: 'TV Load' };
                       return (
                         <TouchableOpacity
                           key={t}
@@ -333,15 +344,12 @@ export default function EntryScreen() {
                             flex: 1,
                             paddingVertical: 10,
                             borderRadius: 12,
-                            justifyContent: 'center',
                             alignItems: 'center',
-                            backgroundColor: isActive ? C.surface2 : 'transparent',
-                            borderWidth: 1,
-                            borderColor: isActive ? C.border : 'transparent',
+                            backgroundColor: isActive ? C.accent : 'transparent',
                           }}
                         >
-                          <Text style={{ textAlign: 'center', fontWeight: '700', fontSize: 11, color: isActive ? C.accent : C.text2 }}>
-                            {labels[t]}
+                          <Text style={{ fontSize: 11, fontWeight: '800', color: isActive ? C.bg : C.text2 }}>
+                            {t === 'CASH_IN' ? 'Cash In' : t === 'CASH_OUT' ? 'Cash Out' : t === 'E_LOAD' ? 'E-Load' : 'TV Load'}
                           </Text>
                         </TouchableOpacity>
                       );
@@ -556,21 +564,36 @@ export default function EntryScreen() {
             {/* 6. Debtor Selector (conditional on is_debt) */}
             {isDebt && (
               <View style={{ marginBottom: 20, position: 'relative' }}>
-                {debtors.length > 0 && (
-                  <View style={{ marginBottom: 10 }}>
+                {realRecentDebtors.length > 0 && (
+                  <View style={{ marginBottom: 12 }}>
                     <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>
-                      Recent Debtors
+                      Recent Debtors (Last Active)
                     </Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                      {debtors.slice(0, 5).map((debtor) => (
-                        <TouchableOpacity
-                          key={debtor.id}
-                          onPress={() => selectCustomer(debtor.id, debtor.name)}
-                          style={{ backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 }}
-                        >
-                          <Text style={{ color: C.text2, fontSize: 11, fontWeight: '700' }}>{debtor.name}</Text>
-                        </TouchableOpacity>
-                      ))}
+                      {realRecentDebtors.slice(0, 8).map((debtor: Debtor) => {
+                        const isSelected = selectedCustomerId === debtor.id || (watchCustomerName || '').toLowerCase() === debtor.name.toLowerCase();
+                        return (
+                          <TouchableOpacity
+                            key={debtor.id}
+                            onPress={() => selectCustomer(debtor.id, debtor.name)}
+                            style={{
+                              backgroundColor: isSelected ? C.accentDim : C.bg,
+                              borderWidth: 1,
+                              borderColor: isSelected ? C.accent : C.border,
+                              borderRadius: 12,
+                              paddingHorizontal: 12,
+                              paddingVertical: 8,
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              gap: 4,
+                            }}
+                          >
+                            <Text style={{ color: isSelected ? C.accent : C.text2, fontSize: 11, fontWeight: '700' }}>
+                              {debtor.name}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
                     </ScrollView>
                   </View>
                 )}
@@ -612,44 +635,40 @@ export default function EntryScreen() {
                           <Text style={{ color: C.text2, fontSize: 13, fontWeight: '600' }}>{item.name}</Text>
                         </TouchableOpacity>
                       ))}
-                      {!customers.some((c: any) => c.name.toLowerCase() === customerSearchQuery.toLowerCase()) ? (
+                      {!customers.some((c: any) => c.name.toLowerCase() === customerSearchQuery.toLowerCase()) && (
                         <TouchableOpacity
                           onPress={() => {
                             setShowCustomerDropdown(false);
                           }}
                           style={{ padding: 12, flexDirection: 'row', alignItems: 'center', gap: 8 }}
                         >
-                          <UserPlus size={14} color={C.success} />
-                          <Text style={{ color: C.success, fontSize: 12, fontWeight: '700' }}>
-                            Create New Debtor &quot;{customerSearchQuery}&quot;
+                          <UserPlus size={14} color={C.accent} />
+                          <Text style={{ color: C.accent, fontSize: 12, fontWeight: '700' }}>
+                            Create new customer: "{customerSearchQuery}"
                           </Text>
                         </TouchableOpacity>
-                      ) : null}
+                      )}
                     </ScrollView>
                   </View>
                 )}
               </View>
             )}
 
-            {/* 7. Action Submission Button */}
+            {/* 7. Submit Button */}
             <TouchableOpacity
               onPress={handleSubmit(onSubmit)}
               disabled={isSubmitting}
               style={{
-                width: '100%',
-                paddingVertical: 16,
-                borderRadius: 16,
-                flexDirection: 'row',
-                justifyContent: 'center',
-                alignItems: 'center',
-                marginBottom: 32,
                 backgroundColor: C.accent,
-                opacity: isSubmitting ? 0.6 : 1,
+                borderRadius: 16,
+                paddingVertical: 18,
+                alignItems: 'center',
+                marginTop: 10,
+                opacity: isSubmitting ? 0.7 : 1,
               }}
             >
-              <PlusCircle size={18} color={C.bg} style={{ marginRight: 8 }} />
-              <Text style={{ color: C.bg, fontWeight: '800', fontSize: 13, letterSpacing: 1.5, textTransform: 'uppercase' }}>
-                {isSubmitting ? 'Logging...' : 'Log Transaction'}
+              <Text style={{ color: C.bg, fontSize: 15, fontWeight: '900', letterSpacing: 0.5 }}>
+                {isSubmitting ? 'LOGGING TRANSACTION...' : 'LOG TRANSACTION'}
               </Text>
             </TouchableOpacity>
 

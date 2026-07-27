@@ -1,7 +1,7 @@
-import React from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import React, { useState, useMemo } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, Alert, Modal, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useDbQueries, Transaction } from '@/hooks/useDbQueries';
+import { useDbQueries, Transaction, DailyProfitItem } from '@/hooks/useDbQueries';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -16,6 +16,13 @@ import {
   Coins,
   RefreshCw,
   ChevronRight,
+  Calendar,
+  Clock,
+  BarChart2,
+  SlidersHorizontal,
+  ChevronDown,
+  Check,
+  X,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -45,6 +52,48 @@ export default function DashboardScreen() {
   const { useDashboardData, useDeleteTransaction } = useDbQueries();
   const { data, isLoading, refetch } = useDashboardData();
   const deleteTxMutation = useDeleteTransaction();
+
+  // Interactive Chart & Earnings Summary State
+  const [timeframe, setTimeframe] = useState<'7d' | '14d' | '30d' | 'custom'>('7d');
+  const [customDays, setCustomDays] = useState<number>(45);
+  const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
+
+  // Custom Timeframe Dropdown Modal State
+  const [isCustomDaysModalOpen, setIsCustomDaysModalOpen] = useState(false);
+  const [customInputText, setCustomInputText] = useState('7');
+
+  // Dynamic daily profits chart dataset based on timeframe selection (BEFORE ANY CONDITIONAL RETURNS)
+  const activeDailyProfits: DailyProfitItem[] = useMemo(() => {
+    const fullList = data?.dailyProfits || [];
+    if (timeframe === '7d') return fullList.slice(-7);
+    if (timeframe === '14d') return fullList.slice(-14);
+    if (timeframe === '30d') return fullList.slice(-30);
+    return fullList.slice(-Math.max(customDays, 1));
+  }, [data?.dailyProfits, timeframe, customDays]);
+
+  // Selected Day Details for Interactive Chart (BEFORE ANY CONDITIONAL RETURNS)
+  const selectedDayInfo = useMemo(() => {
+    if (!activeDailyProfits || activeDailyProfits.length === 0) return null;
+    if (selectedDayKey) {
+      const match = activeDailyProfits.find(d => d.dateKey === selectedDayKey);
+      if (match) return match;
+    }
+    // Default to the last item in the series (Today or most recent)
+    return activeDailyProfits[activeDailyProfits.length - 1];
+  }, [activeDailyProfits, selectedDayKey]);
+
+  // Custom N-Day Summary Calculation (BEFORE ANY CONDITIONAL RETURNS)
+  const customNDaySummary = useMemo(() => {
+    const list = (data?.dailyProfits || []).slice(-Math.max(customDays, 1));
+    const grossProfit = list.reduce((sum, d) => sum + (d.grossProfit || d.profit || 0), 0);
+    const expenses = list.reduce((sum, d) => sum + (d.expenses || 0), 0);
+    return {
+      grossProfit,
+      expenses,
+      netProfit: grossProfit - expenses,
+      txCount: list.reduce((sum, d) => sum + (d.txCount || 0), 0),
+    };
+  }, [data?.dailyProfits, customDays]);
 
   const handleRefresh = async () => {
     if (process.env.EXPO_OS !== 'web') {
@@ -150,12 +199,14 @@ export default function DashboardScreen() {
     marginBottom: 16,
   };
 
+  const activeDaysCount = timeframe === '7d' ? 7 : timeframe === '14d' ? 14 : timeframe === '30d' ? 30 : customDays;
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}>
       <ScrollView
         style={{ flex: 1, paddingHorizontal: 16 }}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 110 }}
+        contentContainerStyle={{ paddingBottom: 180 }}
       >
 
         {/* ── Header ───────────────────────────────────────────────── */}
@@ -334,40 +385,261 @@ export default function DashboardScreen() {
           })()}
         </View>
 
-        {/* ── 7-Day Profit Chart ────────────────────────────────────── */}
+        {/* ── Multi-Timeframe Earnings Summary Section ──────────────── */}
         <View style={CARD_STYLE}>
-          <Text style={{ color: C.text2, fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', fontWeight: '700', marginBottom: 16 }}>
-            7-Day Gross Profit
-          </Text>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', height: 100, paddingTop: 8 }}>
-            {data.dailyProfits.map((day, idx) => {
-              const maxProfit = Math.max(...data.dailyProfits.map(d => d.profit), 100);
-              const heightPct = Math.min((day.profit / maxProfit) * 100, 100);
-              const isToday = idx === data.dailyProfits.length - 1;
-              return (
-                <View key={idx} style={{ alignItems: 'center', flex: 1 }}>
-                  {day.profit > 0 && (
-                    <Text style={{ color: isToday ? C.accent : C.text3, fontSize: 8, fontWeight: '700', marginBottom: 4 }}>
-                      ₱{day.profit.toFixed(0)}
-                    </Text>
-                  )}
-                  <View
-                    style={{
-                      height: `${Math.max(heightPct, 5)}%` as any,
-                      width: 28,
-                      borderRadius: 6,
-                      backgroundColor: isToday ? C.accent : C.surface2,
-                      borderWidth: 1,
-                      borderColor: isToday ? 'rgba(230,168,23,0.4)' : C.border,
-                    }}
-                  />
-                  <Text style={{ color: C.text3, fontSize: 9, marginTop: 6, textAlign: 'center' }} numberOfLines={1}>
-                    {day.date}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 }}>
+            <Calendar size={14} color={C.accent} />
+            <Text style={{ color: C.text2, fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', fontWeight: '700' }}>
+              Earnings Summary
+            </Text>
+          </View>
+
+          {/* Summary Cards */}
+          <View style={{ gap: 10 }}>
+            {/* Today */}
+            <View style={{ backgroundColor: C.surface2, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: C.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View>
+                <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>Today</Text>
+                <Text style={{ color: C.text1, fontSize: 16, fontWeight: '800', marginTop: 2 }}>
+                  ₱{(data.earningsSummary?.today?.netProfit ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </Text>
+              </View>
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={{ color: C.success, fontSize: 11, fontWeight: '700' }}>
+                  Gross: ₱{(data.earningsSummary?.today?.grossProfit ?? data.todayProfit).toLocaleString('en-US')}
+                </Text>
+                <Text style={{ color: C.danger, fontSize: 10, marginTop: 2 }}>
+                  Exp: ₱{(data.earningsSummary?.today?.expenses ?? 0).toLocaleString('en-US')}
+                </Text>
+              </View>
+            </View>
+
+            {/* 7 Days (This Week) */}
+            <View style={{ backgroundColor: C.surface2, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: C.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View>
+                <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>This Week (7 Days)</Text>
+                <Text style={{ color: C.text1, fontSize: 16, fontWeight: '800', marginTop: 2 }}>
+                  ₱{(data.earningsSummary?.week?.netProfit ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </Text>
+              </View>
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={{ color: C.success, fontSize: 11, fontWeight: '700' }}>
+                  Gross: ₱{(data.earningsSummary?.week?.grossProfit ?? 0).toLocaleString('en-US')}
+                </Text>
+                <Text style={{ color: C.danger, fontSize: 10, marginTop: 2 }}>
+                  Exp: ₱{(data.earningsSummary?.week?.expenses ?? 0).toLocaleString('en-US')}
+                </Text>
+              </View>
+            </View>
+
+            {/* 30 Days (This Month) */}
+            <View style={{ backgroundColor: C.surface2, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: C.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View>
+                <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>This Month (30 Days)</Text>
+                <Text style={{ color: C.accent, fontSize: 16, fontWeight: '800', marginTop: 2 }}>
+                  ₱{(data.earningsSummary?.month?.netProfit ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </Text>
+              </View>
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={{ color: C.success, fontSize: 11, fontWeight: '700' }}>
+                  Gross: ₱{(data.earningsSummary?.month?.grossProfit ?? 0).toLocaleString('en-US')}
+                </Text>
+                <Text style={{ color: C.danger, fontSize: 10, marginTop: 2 }}>
+                  Exp: ₱{(data.earningsSummary?.month?.expenses ?? 0).toLocaleString('en-US')}
+                </Text>
+              </View>
+            </View>
+
+            {/* Custom N-Days Dropdown Card */}
+            <View style={{ backgroundColor: C.surface2, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: 'rgba(230,168,23,0.3)' }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                  <SlidersHorizontal size={12} color={C.accent} />
+                  <Text style={{ color: C.accent, fontSize: 10, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1 }} numberOfLines={1}>
+                    Custom Range Summary
                   </Text>
                 </View>
-              );
-            })}
+
+                {/* Dropdown Selector Button */}
+                <TouchableOpacity
+                  onPress={async () => {
+                    if (process.env.EXPO_OS !== 'web') {
+                      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    }
+                    setCustomInputText(customDays.toString());
+                    setIsCustomDaysModalOpen(true);
+                  }}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 6,
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: 8,
+                    backgroundColor: C.accentDim,
+                    borderWidth: 1,
+                    borderColor: C.accent,
+                  }}
+                >
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: C.accent }}>
+                    {customDays} Days
+                  </Text>
+                  <ChevronDown size={13} color={C.accent} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View>
+                  <Text style={{ color: C.text1, fontSize: 15, fontWeight: '800' }}>
+                    ₱{customNDaySummary.netProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </Text>
+                  <Text style={{ color: C.text3, fontSize: 10, marginTop: 1 }}>
+                    Total Net Profit in last {customDays} days
+                  </Text>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={{ color: C.success, fontSize: 11, fontWeight: '700' }}>
+                    Gross: ₱{customNDaySummary.grossProfit.toLocaleString('en-US')}
+                  </Text>
+                  <Text style={{ color: C.danger, fontSize: 10, marginTop: 2 }}>
+                    Exp: ₱{customNDaySummary.expenses.toLocaleString('en-US')}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
           </View>
+        </View>
+
+        {/* ── Dynamic Interactive Profit Chart ─────────────────────── */}
+        <View style={CARD_STYLE}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, gap: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+              <BarChart2 size={14} color={C.accent} />
+              <Text style={{ color: C.text2, fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', fontWeight: '700' }} numberOfLines={1}>
+                Profit Trend
+              </Text>
+            </View>
+
+            {/* Single Unified Dropdown Selector Button */}
+            <TouchableOpacity
+              onPress={async () => {
+                if (process.env.EXPO_OS !== 'web') {
+                  await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }
+                setCustomInputText(activeDaysCount.toString());
+                setIsCustomDaysModalOpen(true);
+              }}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+                paddingHorizontal: 10,
+                paddingVertical: 5,
+                borderRadius: 8,
+                backgroundColor: C.accentDim,
+                borderWidth: 1,
+                borderColor: C.accent,
+              }}
+            >
+              <Text style={{ fontSize: 11, fontWeight: '800', color: C.accent }}>
+                {activeDaysCount} Days Range
+              </Text>
+              <ChevronDown size={13} color={C.accent} />
+            </TouchableOpacity>
+          </View>
+
+          <Text style={{ color: C.text3, fontSize: 10, marginBottom: 14 }}>
+            💡 Tap any day bar below to view daily fees, expenses, and net profit.
+          </Text>
+
+          {/* Scrollable Bar Chart */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 110, paddingTop: 10, gap: activeDailyProfits.length > 14 ? 8 : 12, minWidth: '100%' }}>
+              {activeDailyProfits.map((day, idx) => {
+                const maxProfit = Math.max(...activeDailyProfits.map(d => d.grossProfit || d.profit || 0), 100);
+                const dayProfit = day.grossProfit || day.profit || 0;
+                const heightPct = Math.min((dayProfit / maxProfit) * 100, 100);
+                const isSelected = selectedDayInfo?.dateKey === day.dateKey;
+                const isToday = idx === activeDailyProfits.length - 1;
+
+                return (
+                  <TouchableOpacity
+                    key={day.dateKey || idx}
+                    onPress={async () => {
+                      if (process.env.EXPO_OS !== 'web') {
+                        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      }
+                      setSelectedDayKey(day.dateKey);
+                    }}
+                    activeOpacity={0.7}
+                    style={{ alignItems: 'center', width: activeDailyProfits.length > 14 ? 28 : (280 / Math.max(activeDailyProfits.length, 1)) }}
+                  >
+                    {dayProfit > 0 && (
+                      <Text style={{ color: isSelected ? C.accent : isToday ? C.accent : C.text3, fontSize: 8, fontWeight: '800', marginBottom: 4 }}>
+                        ₱{dayProfit.toFixed(0)}
+                      </Text>
+                    )}
+                    <View
+                      style={{
+                        height: `${Math.max(heightPct, 6)}%` as any,
+                        width: '100%',
+                        maxHeight: 80,
+                        borderRadius: 6,
+                        backgroundColor: isSelected ? C.accent : isToday ? 'rgba(230,168,23,0.6)' : C.surface2,
+                        borderWidth: isSelected ? 2 : 1,
+                        borderColor: isSelected ? '#ffffff' : isToday ? C.accent : C.border,
+                      }}
+                    />
+                    <Text style={{ color: isSelected ? C.accent : C.text3, fontSize: 8, marginTop: 6, textAlign: 'center', fontWeight: isSelected ? '800' : '500' }} numberOfLines={1}>
+                      {day.date.split(',')[0] || day.date}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </ScrollView>
+
+          {/* Selected Day Detail Card */}
+          {selectedDayInfo && (
+            <View style={{ backgroundColor: C.surface2, borderRadius: 16, padding: 14, marginTop: 16, borderWidth: 1, borderColor: 'rgba(230,168,23,0.3)' }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Clock size={13} color={C.accent} />
+                  <Text style={{ color: C.text1, fontSize: 13, fontWeight: '800' }}>
+                    {selectedDayInfo.date}
+                  </Text>
+                </View>
+                <View style={{ backgroundColor: C.accentDim, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
+                  <Text style={{ color: C.accent, fontSize: 10, fontWeight: '800' }}>
+                    {selectedDayInfo.txCount || 0} Tx Logs
+                  </Text>
+                </View>
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <View style={{ flex: 1, backgroundColor: C.surface, padding: 10, borderRadius: 12, borderWidth: 1, borderColor: C.border }}>
+                  <Text style={{ color: C.text3, fontSize: 9, textTransform: 'uppercase', fontWeight: '700' }}>Gross Fee</Text>
+                  <Text style={{ color: C.success, fontSize: 14, fontWeight: '800', marginTop: 2 }}>
+                    ₱{(selectedDayInfo.grossProfit || selectedDayInfo.profit || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </Text>
+                </View>
+                <View style={{ flex: 1, backgroundColor: C.surface, padding: 10, borderRadius: 12, borderWidth: 1, borderColor: C.border }}>
+                  <Text style={{ color: C.text3, fontSize: 9, textTransform: 'uppercase', fontWeight: '700' }}>Expenses</Text>
+                  <Text style={{ color: C.danger, fontSize: 14, fontWeight: '800', marginTop: 2 }}>
+                    ₱{(selectedDayInfo.expenses || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </Text>
+                </View>
+                <View style={{ flex: 1, backgroundColor: C.surface, padding: 10, borderRadius: 12, borderWidth: 1, borderColor: C.border }}>
+                  <Text style={{ color: C.text3, fontSize: 9, textTransform: 'uppercase', fontWeight: '700' }}>Net Profit</Text>
+                  <Text style={{ color: (selectedDayInfo.netProfit ?? ((selectedDayInfo.grossProfit || selectedDayInfo.profit || 0) - (selectedDayInfo.expenses || 0))) >= 0 ? C.accent : C.danger, fontSize: 14, fontWeight: '800', marginTop: 2 }}>
+                    ₱{(selectedDayInfo.netProfit ?? ((selectedDayInfo.grossProfit || selectedDayInfo.profit || 0) - (selectedDayInfo.expenses || 0))).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          )}
+
         </View>
 
         {/* ── Recent Transactions ───────────────────────────────────── */}
@@ -458,6 +730,166 @@ export default function DashboardScreen() {
         </View>
 
       </ScrollView>
+
+      {/* ── Custom Days Selection Dropdown Modal ──────────────────────── */}
+      <Modal
+        visible={isCustomDaysModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsCustomDaysModalOpen(false)}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => setIsCustomDaysModalOpen(false)}
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 20 }}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            style={{
+              width: '100%',
+              maxWidth: 360,
+              backgroundColor: C.surface,
+              borderRadius: 22,
+              borderWidth: 1,
+              borderColor: C.border,
+              padding: 20,
+            }}
+          >
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <SlidersHorizontal size={16} color={C.accent} />
+                <Text style={{ color: C.text1, fontSize: 16, fontWeight: '800' }}>
+                  Select Timeframe
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setIsCustomDaysModalOpen(false)}
+                style={{ padding: 4 }}
+              >
+                <X size={18} color={C.text3} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={{ color: C.text3, fontSize: 11, marginBottom: 14 }}>
+              Choose a timeframe preset or enter a custom number of days to aggregate ledger metrics:
+            </Text>
+
+            {/* Presets List */}
+            <View style={{ gap: 8, marginBottom: 16 }}>
+              {[
+                { days: 7, label: '7 Days', sub: 'Past 1 Week' },
+                { days: 14, label: '14 Days', sub: 'Past 2 Weeks' },
+                { days: 30, label: '30 Days', sub: 'Past Month (30 Days)' },
+                { days: 45, label: '45 Days', sub: 'Past 1.5 Months' },
+                { days: 60, label: '60 Days', sub: 'Past 2 Months' },
+                { days: 90, label: '90 Days', sub: 'Past Quarter (3 Months)' },
+              ].map((opt) => {
+                const isSelected = activeDaysCount === opt.days;
+                return (
+                  <TouchableOpacity
+                    key={opt.days}
+                    onPress={async () => {
+                      if (process.env.EXPO_OS !== 'web') {
+                        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      }
+                      if (opt.days === 7) {
+                        setTimeframe('7d');
+                      } else if (opt.days === 14) {
+                        setTimeframe('14d');
+                      } else if (opt.days === 30) {
+                        setTimeframe('30d');
+                      } else {
+                        setTimeframe('custom');
+                        setCustomDays(opt.days);
+                      }
+                      setSelectedDayKey(null);
+                      setCustomInputText(opt.days.toString());
+                      setIsCustomDaysModalOpen(false);
+                    }}
+                    style={{
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: 12,
+                      borderRadius: 12,
+                      backgroundColor: isSelected ? C.accentDim : C.surface2,
+                      borderWidth: 1,
+                      borderColor: isSelected ? C.accent : C.border,
+                    }}
+                  >
+                    <View>
+                      <Text style={{ color: isSelected ? C.accent : C.text1, fontSize: 13, fontWeight: '700' }}>
+                        {opt.label}
+                      </Text>
+                      <Text style={{ color: C.text3, fontSize: 10, marginTop: 1 }}>
+                        {opt.sub}
+                      </Text>
+                    </View>
+                    {isSelected && <Check size={16} color={C.accent} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Manual Input for N Days */}
+            <View style={{ backgroundColor: C.surface2, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: C.border }}>
+              <Text style={{ color: C.text2, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+                Or Enter Custom N Days:
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                <TextInput
+                  style={{
+                    flex: 1,
+                    backgroundColor: C.bg,
+                    color: C.text1,
+                    fontSize: 14,
+                    fontWeight: '700',
+                    borderRadius: 8,
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    borderWidth: 1,
+                    borderColor: C.border,
+                  }}
+                  keyboardType="numeric"
+                  value={customInputText}
+                  onChangeText={setCustomInputText}
+                  placeholder="e.g. 120"
+                  placeholderTextColor={C.text3}
+                />
+                <TouchableOpacity
+                  onPress={async () => {
+                    const num = parseInt(customInputText, 10);
+                    if (!isNaN(num) && num > 0) {
+                      if (process.env.EXPO_OS !== 'web') {
+                        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      }
+                      if (num === 7) setTimeframe('7d');
+                      else if (num === 14) setTimeframe('14d');
+                      else if (num === 30) setTimeframe('30d');
+                      else {
+                        setTimeframe('custom');
+                        setCustomDays(num);
+                      }
+                      setSelectedDayKey(null);
+                      setIsCustomDaysModalOpen(false);
+                    }
+                  }}
+                  style={{
+                    backgroundColor: C.accent,
+                    paddingHorizontal: 14,
+                    paddingVertical: 10,
+                    borderRadius: 8,
+                  }}
+                >
+                  <Text style={{ color: C.bg, fontSize: 12, fontWeight: '800' }}>
+                    Set Days
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 }
