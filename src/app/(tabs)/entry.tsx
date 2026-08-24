@@ -644,7 +644,7 @@ export default function EntryScreen() {
                         >
                           <UserPlus size={14} color={C.accent} />
                           <Text style={{ color: C.accent, fontSize: 12, fontWeight: '700' }}>
-                            Create new customer: "{customerSearchQuery}"
+                            Create new customer: &quot;{customerSearchQuery}&quot;
                           </Text>
                         </TouchableOpacity>
                       )}

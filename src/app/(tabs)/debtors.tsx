@@ -116,6 +116,15 @@ export default function DebtorsScreen() {
   };
 
   const handleDeleteCustomer = (debtor: Debtor) => {
+    if (Math.abs(debtor.balance) > 0.01) {
+      Alert.alert(
+        "Cannot Delete Customer",
+        `This customer has an outstanding balance of ₱${debtor.balance.toFixed(2)}. Please settle their balance first before deleting their profile.`,
+        [{ text: "OK" }]
+      );
+      return;
+    }
+
     Alert.alert(
       "Delete Customer Profile",
       `Are you sure you want to permanently delete the profile of "${debtor.name}"? Past transactions will remain in reports as anonymous, but this customer profile will be removed.`,
@@ -169,8 +178,8 @@ export default function DebtorsScreen() {
       Alert.alert("Invalid Amount", "Enter a principal payment or an extra profit/interest payment.");
       return;
     }
-    if (amount > selectedDebtor.balance) {
-      Alert.alert("Invalid Amount", "Principal payment cannot exceed the debtor balance of " + selectedDebtor.balance);
+    if (amount - selectedDebtor.balance > 0.01) {
+      Alert.alert("Invalid Amount", "Principal payment cannot exceed the debtor balance of " + selectedDebtor.balance.toFixed(2));
       return;
     }
 

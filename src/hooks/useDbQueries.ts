@@ -316,7 +316,7 @@ const repairBrokenWebDebtPayments = (db: any) => {
   }
 };
 
-const getDashboardMetrics = (db: any) => {
+const getDashboardMetrics = (db: any, daysLimit = 30) => {
   const transactions = db.transactions || [];
   const expenses = db.expenses || [];
   const walletsMap = db.wallets || {};
@@ -356,9 +356,10 @@ const getDashboardMetrics = (db: any) => {
       };
     });
 
-  // Daily profits & expenses for the last 30 days
+  // Daily profits & expenses for the last N days
   const dailyProfits: DailyProfitItem[] = [];
-  for (let i = 29; i >= 0; i--) {
+  const loopLimit = Math.max(30, daysLimit);
+  for (let i = loopLimit - 1; i >= 0; i--) {
     const d = new Date();
     d.setDate(d.getDate() - i);
     const dateStr = getLocalDateKey(d);
@@ -391,10 +392,10 @@ const getDashboardMetrics = (db: any) => {
     txCount: last7.reduce((sum, d) => sum + d.txCount, 0),
   };
   const monthSummary: EarningsTimeframeSummary = {
-    grossProfit: dailyProfits.reduce((sum, d) => sum + d.grossProfit, 0),
-    expenses: dailyProfits.reduce((sum, d) => sum + d.expenses, 0),
-    netProfit: dailyProfits.reduce((sum, d) => sum + d.netProfit, 0),
-    txCount: dailyProfits.reduce((sum, d) => sum + d.txCount, 0),
+    grossProfit: dailyProfits.slice(-30).reduce((sum, d) => sum + d.grossProfit, 0),
+    expenses: dailyProfits.slice(-30).reduce((sum, d) => sum + d.expenses, 0),
+    netProfit: dailyProfits.slice(-30).reduce((sum, d) => sum + d.netProfit, 0),
+    txCount: dailyProfits.slice(-30).reduce((sum, d) => sum + d.txCount, 0),
   };
 
   const earningsSummary: EarningsSummary = {
@@ -543,12 +544,12 @@ const applyTxToWallets = (wallets: any, tx: any, revert = false) => {
 function useWebDbQueries() {
   const queryClient = useQueryClient();
 
-  const useDashboardData = () => {
+  const useDashboardData = (daysLimit = 30) => {
     return useQuery({
-      queryKey: ['dashboard'],
+      queryKey: ['dashboard', daysLimit],
       queryFn: async () => {
         const db = getWebDb();
-        return getDashboardMetrics(db);
+        return getDashboardMetrics(db, daysLimit);
       }
     });
   };
@@ -1180,9 +1181,9 @@ export function useDbQueries() {
   /* eslint-enable react-hooks/rules-of-hooks */
 
   // 1. Dashboard Metrics Query
-  const useDashboardData = () => {
+  const useDashboardData = (daysLimit = 30) => {
     return useQuery({
-      queryKey: ['dashboard'],
+      queryKey: ['dashboard', daysLimit],
       queryFn: async () => {
         // Gross Profit (Sum of fees)
         const profitResult = await db.getFirstAsync<{ gross_profit: number }>(
@@ -1249,9 +1250,10 @@ export function useDbQueries() {
           return sum;
         }, 0);
 
-        // Daily profits & expenses for the last 30 days
+        // Daily profits & expenses for the last N days
         const dailyProfits: DailyProfitItem[] = [];
-        for (let i = 29; i >= 0; i--) {
+        const loopLimit = Math.max(30, daysLimit);
+        for (let i = loopLimit - 1; i >= 0; i--) {
           const d = new Date();
           d.setDate(d.getDate() - i);
           const dateStr = getLocalDateKey(d);
@@ -1284,10 +1286,10 @@ export function useDbQueries() {
           txCount: last7.reduce((sum, d) => sum + d.txCount, 0),
         };
         const monthSummary: EarningsTimeframeSummary = {
-          grossProfit: dailyProfits.reduce((sum, d) => sum + d.grossProfit, 0),
-          expenses: dailyProfits.reduce((sum, d) => sum + d.expenses, 0),
-          netProfit: dailyProfits.reduce((sum, d) => sum + d.netProfit, 0),
-          txCount: dailyProfits.reduce((sum, d) => sum + d.txCount, 0),
+          grossProfit: dailyProfits.slice(-30).reduce((sum, d) => sum + d.grossProfit, 0),
+          expenses: dailyProfits.slice(-30).reduce((sum, d) => sum + d.expenses, 0),
+          netProfit: dailyProfits.slice(-30).reduce((sum, d) => sum + d.netProfit, 0),
+          txCount: dailyProfits.slice(-30).reduce((sum, d) => sum + d.txCount, 0),
         };
 
         const earningsSummary: EarningsSummary = {
@@ -1813,10 +1815,12 @@ export function useDbQueries() {
   const useResetDatabase = () => {
     return useMutation({
       mutationFn: async () => {
-        await db.execAsync("DELETE FROM transactions");
-        await db.execAsync("DELETE FROM expenses");
-        await db.execAsync("DELETE FROM customers");
-        await db.execAsync("UPDATE wallets SET balance = 0.0");
+        await db.withTransactionAsync(async () => {
+          await db.execAsync("DELETE FROM transactions");
+          await db.execAsync("DELETE FROM expenses");
+          await db.execAsync("DELETE FROM customers");
+          await db.execAsync("UPDATE wallets SET balance = 0.0");
+        });
       },
       onSuccess: () => {
         queryClient.invalidateQueries();

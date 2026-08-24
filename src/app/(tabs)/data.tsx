@@ -653,7 +653,7 @@ export default function DataScreen() {
           onPress: () => {
             Alert.alert(
               "CONFIRM ACTION",
-              "Are you ABSOLUTELY sure? Type reset on prompt? (Tapping OK resets everything)",
+              "Are you ABSOLUTELY sure? This action cannot be undone and will permanently wipe all database data.",
               [
                 { text: "Cancel", style: "cancel" },
                 {

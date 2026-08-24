@@ -287,78 +287,47 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
     AFTER UPDATE ON transactions
     FOR EACH ROW
     BEGIN
-      -- 1. REVERT OLD TRANSACTION
-      -- CASH_IN: digital wallet increases by principal (minus fee if deducted)
       UPDATE wallets
-      SET balance = balance + (OLD.amount - (CASE WHEN OLD.deduct_fee = 1 THEN OLD.fee ELSE 0 END))
-      WHERE channel = OLD.channel AND OLD.type = 'CASH_IN';
-
-      -- CASH_IN: cash-on-hand decreases by principal + fee (only principal if fee is deducted from digital wallet)
-      UPDATE wallets
-      SET balance = balance - (OLD.amount + (CASE WHEN OLD.deduct_fee = 1 THEN 0 ELSE OLD.fee END))
-      WHERE channel = 'PHYSICAL_CASH' AND OLD.type = 'CASH_IN' AND OLD.is_debt = 0;
-
-      -- CASH_OUT: digital wallet decreases by principal + fee (only principal if fee is deducted from payout)
-      UPDATE wallets
-      SET balance = balance - (OLD.amount + (CASE WHEN OLD.deduct_fee = 1 THEN 0 ELSE OLD.fee END))
-      WHERE channel = OLD.channel AND OLD.type = 'CASH_OUT' AND OLD.is_debt = 0;
-
-      -- CASH_OUT: cash-on-hand increases by principal (minus fee if fee was deducted from payout)
-      UPDATE wallets
-      SET balance = balance + (OLD.amount - (CASE WHEN OLD.deduct_fee = 1 THEN OLD.fee ELSE 0 END))
-      WHERE channel = 'PHYSICAL_CASH' AND OLD.type = 'CASH_OUT';
-
-      -- E_LOAD / TV_LOAD: selected float channel increases by principal
-      UPDATE wallets
-      SET balance = balance + OLD.amount
-      WHERE channel = OLD.channel AND (OLD.type = 'E_LOAD' OR OLD.type = 'TV_LOAD');
-
-      -- E_LOAD / TV_LOAD: cash-on-hand decreases by principal + fee (if NOT debt)
-      UPDATE wallets
-      SET balance = balance - (OLD.amount + OLD.fee)
-      WHERE channel = 'PHYSICAL_CASH' AND (OLD.type = 'E_LOAD' OR OLD.type = 'TV_LOAD') AND OLD.is_debt = 0;
-
-      -- DEBT_PAYMENT: selected channel decreases by principal paid plus extra profit received
-      UPDATE wallets
-      SET balance = balance - OLD.amount - OLD.fee
-      WHERE channel = OLD.channel AND OLD.type = 'DEBT_PAYMENT';
-
-
-      -- 2. APPLY NEW TRANSACTION
-      -- CASH_IN: digital wallet decreases by principal (minus fee if deducted)
-      UPDATE wallets
-      SET balance = balance - (NEW.amount - (CASE WHEN NEW.deduct_fee = 1 THEN NEW.fee ELSE 0 END))
-      WHERE channel = NEW.channel AND NEW.type = 'CASH_IN';
-
-      -- CASH_IN: cash-on-hand increases by principal + fee (only principal if fee is deducted from digital wallet)
-      UPDATE wallets
-      SET balance = balance + NEW.amount + (CASE WHEN NEW.deduct_fee = 1 THEN 0 ELSE NEW.fee END)
-      WHERE channel = 'PHYSICAL_CASH' AND NEW.type = 'CASH_IN' AND NEW.is_debt = 0;
-
-      -- CASH_OUT: digital wallet increases by principal + fee (only principal if fee is deducted from physical cash handed out)
-      UPDATE wallets
-      SET balance = balance + NEW.amount + (CASE WHEN NEW.deduct_fee = 1 THEN 0 ELSE NEW.fee END)
-      WHERE channel = NEW.channel AND NEW.type = 'CASH_OUT' AND NEW.is_debt = 0;
-
-      -- CASH_OUT: cash-on-hand decreases by principal (minus fee if fee is deducted from payout)
-      UPDATE wallets
-      SET balance = balance - (NEW.amount - (CASE WHEN NEW.deduct_fee = 1 THEN NEW.fee ELSE 0 END))
-      WHERE channel = 'PHYSICAL_CASH' AND NEW.type = 'CASH_OUT';
-
-      -- E_LOAD / TV_LOAD: selected float channel decreases by principal
-      UPDATE wallets
-      SET balance = balance - NEW.amount
-      WHERE channel = NEW.channel AND (NEW.type = 'E_LOAD' OR NEW.type = 'TV_LOAD');
-
-      -- E_LOAD / TV_LOAD: cash-on-hand increases by principal + fee (if NOT debt)
-      UPDATE wallets
-      SET balance = balance + NEW.amount + NEW.fee
-      WHERE channel = 'PHYSICAL_CASH' AND (NEW.type = 'E_LOAD' OR NEW.type = 'TV_LOAD') AND NEW.is_debt = 0;
-
-      -- DEBT_PAYMENT: selected channel increases by principal paid plus extra profit received
-      UPDATE wallets
-      SET balance = balance + NEW.amount + NEW.fee
-      WHERE channel = NEW.channel AND NEW.type = 'DEBT_PAYMENT';
+      SET balance = balance 
+        -- 1. Revert OLD transaction effect on OLD digital wallet
+        + (CASE WHEN channel = OLD.channel THEN
+             (CASE
+               WHEN OLD.type = 'CASH_IN' THEN (OLD.amount - (CASE WHEN OLD.deduct_fee = 1 THEN OLD.fee ELSE 0 END))
+               WHEN OLD.type = 'CASH_OUT' AND OLD.is_debt = 0 THEN - (OLD.amount + (CASE WHEN OLD.deduct_fee = 1 THEN 0 ELSE OLD.fee END))
+               WHEN (OLD.type = 'E_LOAD' OR OLD.type = 'TV_LOAD') THEN OLD.amount
+               WHEN OLD.type = 'DEBT_PAYMENT' THEN - (OLD.amount + OLD.fee)
+               ELSE 0
+              END)
+           ELSE 0 END)
+        -- 2. Revert OLD transaction effect on PHYSICAL_CASH
+        + (CASE WHEN channel = 'PHYSICAL_CASH' THEN
+             (CASE
+               WHEN OLD.type = 'CASH_IN' AND OLD.is_debt = 0 THEN - (OLD.amount + (CASE WHEN OLD.deduct_fee = 1 THEN 0 ELSE OLD.fee END))
+               WHEN OLD.type = 'CASH_OUT' THEN (OLD.amount - (CASE WHEN OLD.deduct_fee = 1 THEN OLD.fee ELSE 0 END))
+               WHEN (OLD.type = 'E_LOAD' OR OLD.type = 'TV_LOAD') AND OLD.is_debt = 0 THEN - (OLD.amount + OLD.fee)
+               ELSE 0
+              END)
+           ELSE 0 END)
+        -- 3. Apply NEW transaction effect on NEW digital wallet
+        + (CASE WHEN channel = NEW.channel THEN
+             (CASE
+               WHEN NEW.type = 'CASH_IN' THEN - (NEW.amount - (CASE WHEN NEW.deduct_fee = 1 THEN NEW.fee ELSE 0 END))
+               WHEN NEW.type = 'CASH_OUT' AND NEW.is_debt = 0 THEN (NEW.amount + (CASE WHEN NEW.deduct_fee = 1 THEN 0 ELSE NEW.fee END))
+               WHEN (NEW.type = 'E_LOAD' OR NEW.type = 'TV_LOAD') THEN - NEW.amount
+               WHEN NEW.type = 'DEBT_PAYMENT' THEN (NEW.amount + NEW.fee)
+               ELSE 0
+              END)
+           ELSE 0 END)
+        -- 4. Apply NEW transaction effect on PHYSICAL_CASH
+        + (CASE WHEN channel = 'PHYSICAL_CASH' THEN
+             (CASE
+               WHEN NEW.type = 'CASH_IN' AND NEW.is_debt = 0 THEN (NEW.amount + (CASE WHEN NEW.deduct_fee = 1 THEN 0 ELSE NEW.fee END))
+               WHEN NEW.type = 'CASH_OUT' THEN - (NEW.amount - (CASE WHEN NEW.deduct_fee = 1 THEN NEW.fee ELSE 0 END))
+               WHEN (NEW.type = 'E_LOAD' OR NEW.type = 'TV_LOAD') AND NEW.is_debt = 0 THEN (NEW.amount + NEW.fee)
+               ELSE 0
+              END)
+           ELSE 0 END)
+      WHERE channel IN (OLD.channel, NEW.channel, 'PHYSICAL_CASH');
     END;
   `);
 

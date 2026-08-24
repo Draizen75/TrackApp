@@ -49,13 +49,16 @@ const C = {
 
 export default function DashboardScreen() {
   const router = useRouter();
-  const { useDashboardData, useDeleteTransaction } = useDbQueries();
-  const { data, isLoading, refetch } = useDashboardData();
-  const deleteTxMutation = useDeleteTransaction();
 
   // Interactive Chart & Earnings Summary State
   const [timeframe, setTimeframe] = useState<'7d' | '14d' | '30d' | 'custom'>('7d');
   const [customDays, setCustomDays] = useState<number>(45);
+  const activeDaysCount = timeframe === '7d' ? 7 : timeframe === '14d' ? 14 : timeframe === '30d' ? 30 : customDays;
+
+  const { useDashboardData, useDeleteTransaction } = useDbQueries();
+  const { data, isLoading, refetch } = useDashboardData(activeDaysCount);
+  const deleteTxMutation = useDeleteTransaction();
+
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
 
   // Custom Timeframe Dropdown Modal State
@@ -199,7 +202,7 @@ export default function DashboardScreen() {
     marginBottom: 16,
   };
 
-  const activeDaysCount = timeframe === '7d' ? 7 : timeframe === '14d' ? 14 : timeframe === '30d' ? 30 : customDays;
+
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}>
