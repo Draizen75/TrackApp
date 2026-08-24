@@ -3,7 +3,7 @@ import {
   Home, 
   PlusCircle, 
   Users, 
-  TrendingDown, 
+  History, 
   Settings 
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -66,10 +66,10 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="expenses"
+        name="history"
         options={{
-          title: 'Expenses',
-          tabBarIcon: ({ color, size }) => <TrendingDown size={size || 20} color={color} />,
+          title: 'History',
+          tabBarIcon: ({ color, size }) => <History size={size || 20} color={color} />,
         }}
       />
       <Tabs.Screen

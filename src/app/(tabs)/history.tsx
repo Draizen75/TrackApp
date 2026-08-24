@@ -5,7 +5,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useDbQueries, Transaction, cleanErrorMessage } from '@/hooks/useDbQueries';
 import { useToast } from '@/components/toast';
 import * as Haptics from 'expo-haptics';
-import { ArrowLeft, Search, X, Trash2, Pencil, Check } from 'lucide-react-native';
+import { Search, X, Trash2, Pencil, Check } from 'lucide-react-native';
 
 // ─── Warm Architectural Design Tokens ─────────────────────────────────────────
 const C = {
@@ -71,13 +71,6 @@ export default function HistoryScreen() {
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-
-  const handleBack = async () => {
-    if (process.env.EXPO_OS !== 'web') {
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
-    router.back();
-  };
 
   const handleDelete = (id: number) => {
     if (process.env.EXPO_OS === 'web') {
@@ -311,17 +304,15 @@ export default function HistoryScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}>
-      {/* Header */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 16, borderBottomWidth: 1, borderColor: C.border }}>
-        <TouchableOpacity onPress={handleBack} style={{ padding: 10, backgroundColor: C.surface, borderRadius: 12, borderWidth: 1, borderColor: C.border }}>
-          <ArrowLeft size={18} color={C.text2} />
-        </TouchableOpacity>
-        <Text style={{ flex: 1, textAlign: 'center', color: C.text1, fontSize: 16, fontWeight: '800', marginRight: 40 }}>Transaction History</Text>
-      </View>
-
       {/* Filters and List */}
       <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
         
+        {/* Header */}
+        <View style={{ marginVertical: 20 }}>
+          <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase' }}>Shop Auditing</Text>
+          <Text style={{ color: C.text1, fontSize: 24, fontWeight: '800', marginTop: 2 }}>Transaction History</Text>
+        </View>
+
         {/* Search Box */}
         <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 16 }}>
           <Search size={18} color={C.text3} />
@@ -393,7 +384,7 @@ export default function HistoryScreen() {
           <ScrollView 
             style={{ flex: 1 }} 
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: 60 }}
+            contentContainerStyle={{ paddingBottom: 110 }}
           >
             {filteredTransactions.map((tx: any) => {
               const typeDetails = getTxTypeDetails(tx.type);

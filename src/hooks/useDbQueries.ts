@@ -318,12 +318,11 @@ const repairBrokenWebDebtPayments = (db: any) => {
 
 const getDashboardMetrics = (db: any, daysLimit = 30) => {
   const transactions = db.transactions || [];
-  const expenses = db.expenses || [];
   const walletsMap = db.wallets || {};
 
   const grossProfit = transactions.reduce((sum: number, tx: any) => sum + (Number(tx.fee) || 0), 0);
-  const totalExpenses = expenses.reduce((sum: number, exp: any) => sum + (Number(exp.amount) || 0), 0);
-  const netProfit = grossProfit - totalExpenses;
+  const totalExpenses = 0;
+  const netProfit = grossProfit;
 
   const totalDebt = transactions.reduce((sum: number, tx: any) => {
     if (tx.is_debt) {
@@ -367,9 +366,7 @@ const getDashboardMetrics = (db: any, daysLimit = 30) => {
 
     const dayTxs = transactions.filter((tx: any) => extractStoredDateKey(tx.created_at) === dateStr);
     const dayGross = dayTxs.reduce((sum: number, tx: any) => sum + (Number(tx.fee) || 0), 0);
-    const dayExp = expenses
-      .filter((exp: any) => extractStoredDateKey(exp.created_at) === dateStr)
-      .reduce((sum: number, exp: any) => sum + (Number(exp.amount) || 0), 0);
+    const dayExp = 0;
 
     dailyProfits.push({
       dateKey: dateStr,
@@ -626,8 +623,7 @@ function useWebDbQueries() {
     return useQuery({
       queryKey: ['expenses'],
       queryFn: async () => {
-        const db = getWebDb();
-        return [...(db.expenses || [])].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        return [];
       }
     });
   };
@@ -894,45 +890,15 @@ function useWebDbQueries() {
 
   const useAddExpense = () => {
     return useMutation({
-      mutationFn: async (exp: { description: string; category?: string; amount: number; channel: string }) => {
-        const db = getWebDb();
-        const currentBalance = db.wallets[exp.channel] || 0;
-        if (currentBalance - exp.amount < -0.01) {
-          throw new Error(`Insufficient float balance in ${channelNames[exp.channel] || exp.channel}.`);
-        }
-        const newExp = {
-          id: db.expenses.length + 1,
-          description: exp.description,
-          category: exp.category || 'OTHER',
-          amount: exp.amount,
-          channel: exp.channel,
-          created_at: new Date().toISOString()
-        };
-        db.expenses.push(newExp);
-        db.wallets[exp.channel] = currentBalance - exp.amount;
-        saveWebDb(db);
-      },
-      onSuccess: () => {
-        queryClient.invalidateQueries();
-      }
+      mutationFn: async () => {},
+      onSuccess: () => {}
     });
   };
 
   const useDeleteExpense = () => {
     return useMutation({
-      mutationFn: async (id: number) => {
-        const db = getWebDb();
-        const idx = db.expenses.findIndex((e: any) => e.id === id);
-        if (idx !== -1) {
-          const exp = db.expenses[idx];
-          db.wallets[exp.channel] = (db.wallets[exp.channel] || 0) + exp.amount;
-          db.expenses.splice(idx, 1);
-          saveWebDb(db);
-        }
-      },
-      onSuccess: () => {
-        queryClient.invalidateQueries();
-      }
+      mutationFn: async () => {},
+      onSuccess: () => {}
     });
   };
 
@@ -981,11 +947,7 @@ function useWebDbQueries() {
           throw new Error(`Cannot delete wallet: ${channel} has linked transaction logs.`);
         }
 
-        // Verify if any expense is associated with this wallet
-        const hasExp = (db.expenses || []).some((exp: any) => exp.channel?.toUpperCase() === chKey);
-        if (hasExp) {
-          throw new Error(`Cannot delete wallet: ${channel} has linked expense logs.`);
-        }
+
 
         if (db.wallets[chKey] !== undefined) {
           delete db.wallets[chKey];
@@ -1005,7 +967,6 @@ function useWebDbQueries() {
       mutationFn: async () => {
         const db = getWebDb();
         db.transactions = [];
-        db.expenses = [];
         db.customers = [
           { id: 1, name: 'Sari-Sari Store Cash', phone: '', notes: '', follow_up_status: 'active', last_reminded_at: null, created_at: new Date().toISOString() }
         ];
@@ -1104,7 +1065,7 @@ function useWebDbQueries() {
           exported_at: new Date().toISOString(),
           customers: [...(db.customers || [])],
           transactions: [...(db.transactions || [])],
-          expenses: [...(db.expenses || [])],
+          expenses: [],
           wallets: Object.entries(db.wallets || {}).map(([channel, balance]) => ({
             channel,
             balance: Number(balance) || 0,
@@ -1130,7 +1091,7 @@ function useWebDbQueries() {
         const restoredDb = {
           customers: backup.customers || [],
           transactions: backup.transactions || [],
-          expenses: backup.expenses || [],
+          expenses: [],
           wallets: { ...defaultWebDb.wallets, ...wallets },
           settings: { ...defaultWebDb.settings, ...(backup.settings || {}) },
         };
@@ -1192,12 +1153,8 @@ export function useDbQueries() {
         const grossProfit = profitResult?.gross_profit ?? 0;
 
         // Total Expenses
-        const expenseResult = await db.getFirstAsync<{ total_expenses: number }>(
-          "SELECT COALESCE(SUM(amount), 0) as total_expenses FROM expenses"
-        );
-        const totalExpenses = expenseResult?.total_expenses ?? 0;
-
-        const netProfit = grossProfit - totalExpenses;
+        const totalExpenses = 0;
+        const netProfit = grossProfit;
 
         // Total Debtors Outstanding
         const debtResult = await db.getFirstAsync<{ total_debt: number }>(`
@@ -1214,10 +1171,6 @@ export function useDbQueries() {
           LEFT JOIN customers c ON t.customer_id = c.id
           ORDER BY t.created_at DESC
         `);
-
-        const allExpenses = await db.getAllAsync<Expense>(
-          "SELECT * FROM expenses ORDER BY created_at DESC"
-        );
 
         const todayStr = getLocalDateKey();
         const todayProfit = allTransactions.reduce((sum, tx) => {
@@ -1261,9 +1214,7 @@ export function useDbQueries() {
 
           const dayTxs = allTransactions.filter((tx) => extractStoredDateKey(tx.created_at) === dateStr);
           const dayGross = dayTxs.reduce((sum, tx) => sum + (Number(tx.fee) || 0), 0);
-          const dayExp = allExpenses
-            .filter((exp) => extractStoredDateKey(exp.created_at) === dateStr)
-            .reduce((sum, exp) => sum + (Number(exp.amount) || 0), 0);
+          const dayExp = 0;
 
           dailyProfits.push({
             dateKey: dateStr,
@@ -1465,9 +1416,7 @@ export function useDbQueries() {
     return useQuery({
       queryKey: ['expenses'],
       queryFn: async () => {
-        return await db.getAllAsync<Expense>(
-          "SELECT * FROM expenses ORDER BY created_at DESC"
-        );
+        return [];
       },
     });
   };
@@ -1702,32 +1651,16 @@ export function useDbQueries() {
   // Add Expense Mutation
   const useAddExpense = () => {
     return useMutation({
-      mutationFn: async (exp: { description: string; category?: string; amount: number; channel: string }) => {
-        const createdAt = new Date().toISOString();
-        await db.runAsync(
-          "INSERT INTO expenses (description, category, amount, channel, created_at) VALUES (?, ?, ?, ?, ?)",
-          [exp.description.trim(), exp.category || 'OTHER', exp.amount, exp.channel, createdAt]
-        );
-      },
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-        queryClient.invalidateQueries({ queryKey: ['expenses'] });
-        queryClient.invalidateQueries({ queryKey: ['wallets'] });
-      },
+      mutationFn: async () => {},
+      onSuccess: () => {},
     });
   };
 
   // Delete Expense Mutation
   const useDeleteExpense = () => {
     return useMutation({
-      mutationFn: async (id: number) => {
-        await db.runAsync("DELETE FROM expenses WHERE id = ?", [id]);
-      },
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-        queryClient.invalidateQueries({ queryKey: ['expenses'] });
-        queryClient.invalidateQueries({ queryKey: ['wallets'] });
-      },
+      mutationFn: async () => {},
+      onSuccess: () => {},
     });
   };
 
@@ -1793,14 +1726,7 @@ export function useDbQueries() {
           throw new Error(`Cannot delete wallet: ${channel} has linked transaction logs.`);
         }
 
-        // Verify if any expense is associated with this wallet
-        const expCount = await db.getFirstAsync<{ count: number }>(
-          "SELECT COUNT(*) as count FROM expenses WHERE UPPER(channel) = ?",
-          [chUpper]
-        );
-        if (expCount && expCount.count > 0) {
-          throw new Error(`Cannot delete wallet: ${channel} has linked expense logs.`);
-        }
+
 
         await db.runAsync("DELETE FROM wallets WHERE channel = ?", [channel]);
       },
@@ -1817,7 +1743,6 @@ export function useDbQueries() {
       mutationFn: async () => {
         await db.withTransactionAsync(async () => {
           await db.execAsync("DELETE FROM transactions");
-          await db.execAsync("DELETE FROM expenses");
           await db.execAsync("DELETE FROM customers");
           await db.execAsync("UPDATE wallets SET balance = 0.0");
         });
@@ -1879,9 +1804,7 @@ export function useDbQueries() {
           ORDER BY t.created_at DESC
         `);
         const transactions = rows as (Transaction & { customer_name?: string | null })[];
-        const expenses = await db.getAllAsync<{
-          id: number; description: string; amount: number; channel: string; created_at: string;
-        }>("SELECT * FROM expenses ORDER BY created_at DESC");
+        const expenses: Expense[] = [];
 
         // Debtor summary for export using FIFO debt settlement
         const customers = await db.getAllAsync<Customer>("SELECT * FROM customers ORDER BY name ASC");
@@ -1942,9 +1865,7 @@ export function useDbQueries() {
         const transactions = await db.getAllAsync<Transaction>(
           "SELECT id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, created_at FROM transactions ORDER BY id ASC"
         );
-        const expenses = await db.getAllAsync<Expense>(
-          "SELECT id, description, category, amount, channel, created_at FROM expenses ORDER BY id ASC"
-        );
+        const expenses: Expense[] = [];
         const wallets = await db.getAllAsync<Wallet>(
           "SELECT channel, balance FROM wallets ORDER BY channel ASC"
         );
@@ -2038,19 +1959,7 @@ export function useDbQueries() {
               );
             }
 
-            for (const exp of backup.expenses) {
-              await db.runAsync(
-                "INSERT INTO expenses (id, description, category, amount, channel, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                [
-                  Number(exp.id),
-                  exp.description || 'Expense',
-                  exp.category || 'OTHER',
-                  Number(exp.amount) || 0,
-                  exp.channel,
-                  exp.created_at || new Date().toISOString(),
-                ]
-              );
-            }
+
 
             for (const [key, value] of Object.entries(backup.settings || {})) {
               await db.runAsync(

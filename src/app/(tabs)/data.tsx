@@ -347,7 +347,7 @@ export default function DataScreen() {
         return;
       }
 
-      const { transactions, expenses, debtors } = exportData;
+      const { transactions, debtors } = exportData;
 
       // ── Build an Excel-optimized CSV with BOM, sections, and grand totals ──
 
@@ -472,52 +472,16 @@ export default function DataScreen() {
       lines.push('');
 
       // ═══════════════════════════════════════════════════════════════════════
-      //  SECTION 3 — EXPENSE LOG
-      // ═══════════════════════════════════════════════════════════════════════
-      lines.push(csvRow('SECTION 3: EXPENSE LOG'));
-      lines.push(csvRow(
-        '#',
-        'Date/Time',
-        'Description',
-        'Amount (₱)',
-        'Wallet Channel',
-      ));
-
-      if (expenses.length === 0) {
-        lines.push(csvRow('(No expenses recorded)'));
-      } else {
-        let grandExpenses = 0;
-        expenses.forEach((exp, i) => {
-          grandExpenses += exp.amount;
-          lines.push(csvRow(
-            i + 1,
-            formatCSVDate(exp.created_at),
-            exp.description,
-            csvNum(exp.amount),
-            exp.channel,
-          ));
-        });
-        // Grand total row
-        lines.push(csvRow('', '', 'TOTAL EXPENSES', csvNum(grandExpenses), ''));
-      }
-      lines.push('');
-
-      // ═══════════════════════════════════════════════════════════════════════
-      //  SECTION 4 — FINANCIAL SUMMARY (computed from data)
+      //  SECTION 3 — FINANCIAL SUMMARY (computed from data)
       // ═══════════════════════════════════════════════════════════════════════
       const totalFees = transactions.reduce((s, t) => s + t.fee, 0);
-      const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
-      const netProfit = totalFees - totalExpenses;
       const totalDebtOutstanding = debtors.reduce((s, d) => s + d.balance, 0);
 
-      lines.push(csvRow('SECTION 4: FINANCIAL SUMMARY'));
+      lines.push(csvRow('SECTION 3: FINANCIAL SUMMARY'));
       lines.push(csvRow('Metric', 'Value'));
-      lines.push(csvRow('Total Gross Profit (Fees)', csvNum(totalFees)));
-      lines.push(csvRow('Total Expenses', csvNum(totalExpenses)));
-      lines.push(csvRow('Net Profit', csvNum(netProfit)));
+      lines.push(csvRow('Total Earnings (Fees)', csvNum(totalFees)));
       lines.push(csvRow('Total Outstanding Debt', csvNum(totalDebtOutstanding)));
       lines.push(csvRow('Total Transactions', transactions.length));
-      lines.push(csvRow('Total Expenses Count', expenses.length));
       lines.push(csvRow('Active Debtors', debtors.length));
       lines.push('');
 
@@ -616,7 +580,7 @@ export default function DataScreen() {
 
     Alert.alert(
       "Restore Backup?",
-      "This will replace all current customers, transactions, expenses, wallets, and settings with the pasted backup.",
+      "This will replace all current customers, transactions, wallets, and settings with the pasted backup.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -644,7 +608,7 @@ export default function DataScreen() {
   const handleResetDatabase = () => {
     Alert.alert(
       "☢️ SYSTEM DATABASE RESET",
-      "WARNING: This will permanently delete ALL transactions, customer debt records, and expenses. Wallet floats will be reset to ₱0.00. This CANNOT be undone.",
+      "WARNING: This will permanently delete ALL transactions and customer debt records. Wallet floats will be reset to ₱0.00. This CANNOT be undone.",
       [
         { text: "Cancel", style: "cancel" },
         {

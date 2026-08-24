@@ -4,7 +4,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDbQueries, Transaction, DailyProfitItem } from '@/hooks/useDbQueries';
 import { 
   TrendingUp, 
-  TrendingDown, 
   Users, 
   Wallet, 
   Trash2, 
@@ -89,11 +88,10 @@ export default function DashboardScreen() {
   const customNDaySummary = useMemo(() => {
     const list = (data?.dailyProfits || []).slice(-Math.max(customDays, 1));
     const grossProfit = list.reduce((sum, d) => sum + (d.grossProfit || d.profit || 0), 0);
-    const expenses = list.reduce((sum, d) => sum + (d.expenses || 0), 0);
     return {
       grossProfit,
-      expenses,
-      netProfit: grossProfit - expenses,
+      expenses: 0,
+      netProfit: grossProfit,
       txCount: list.reduce((sum, d) => sum + (d.txCount || 0), 0),
     };
   }, [data?.dailyProfits, customDays]);
@@ -247,12 +245,12 @@ export default function DashboardScreen() {
             borderRadius: 22,
             padding: 24,
             borderWidth: 1,
-            borderColor: data.netProfit >= 0 ? 'rgba(230,168,23,0.25)' : 'rgba(220,107,90,0.25)',
+            borderColor: 'rgba(230,168,23,0.25)',
             marginBottom: 16,
           }}
         >
           <Text style={{ color: C.text3, fontSize: 10, letterSpacing: 2.5, textTransform: 'uppercase', fontWeight: '700', textAlign: 'center', marginBottom: 4 }}>
-            True Net Profit
+            Total Earnings
           </Text>
           <Text style={{ 
             fontSize: 44, 
@@ -265,7 +263,7 @@ export default function DashboardScreen() {
             ₱{data.netProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </Text>
           <Text style={{ color: C.text3, fontSize: 11, textAlign: 'center', marginBottom: 20 }}>
-            Gross fees collected minus all operating costs
+            Accumulated transaction service fees
           </Text>
 
           {/* Divider */}
@@ -275,10 +273,9 @@ export default function DashboardScreen() {
           <View style={{ flexDirection: 'row' }}>
             {[
               { icon: <TrendingUp size={13} color={C.success} />, label: 'Gross Fees', value: data.grossProfit, color: C.text1 },
-              { icon: <TrendingDown size={13} color={C.danger} />, label: 'Expenses', value: data.totalExpenses, color: C.danger },
               { icon: <Users size={13} color={C.warning} />, label: 'Lends/Debt', value: data.totalDebt, color: C.warning },
             ].map((item, i) => (
-              <View key={i} style={{ flex: 1, alignItems: 'center', borderRightWidth: i < 2 ? 1 : 0, borderColor: C.border }}>
+              <View key={i} style={{ flex: 1, alignItems: 'center', borderRightWidth: i < 1 ? 1 : 0, borderColor: C.border }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 }}>
                   {item.icon}
                   <Text style={{ color: C.text3, fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: '700' }}>
@@ -408,11 +405,8 @@ export default function DashboardScreen() {
                 </Text>
               </View>
               <View style={{ alignItems: 'flex-end' }}>
-                <Text style={{ color: C.success, fontSize: 11, fontWeight: '700' }}>
-                  Gross: ₱{(data.earningsSummary?.today?.grossProfit ?? data.todayProfit).toLocaleString('en-US')}
-                </Text>
-                <Text style={{ color: C.danger, fontSize: 10, marginTop: 2 }}>
-                  Exp: ₱{(data.earningsSummary?.today?.expenses ?? 0).toLocaleString('en-US')}
+                <Text style={{ color: C.accent, fontSize: 11, fontWeight: '700' }}>
+                  {(data.earningsSummary?.today?.txCount ?? 0)} Tx Logs
                 </Text>
               </View>
             </View>
@@ -426,11 +420,8 @@ export default function DashboardScreen() {
                 </Text>
               </View>
               <View style={{ alignItems: 'flex-end' }}>
-                <Text style={{ color: C.success, fontSize: 11, fontWeight: '700' }}>
-                  Gross: ₱{(data.earningsSummary?.week?.grossProfit ?? 0).toLocaleString('en-US')}
-                </Text>
-                <Text style={{ color: C.danger, fontSize: 10, marginTop: 2 }}>
-                  Exp: ₱{(data.earningsSummary?.week?.expenses ?? 0).toLocaleString('en-US')}
+                <Text style={{ color: C.accent, fontSize: 11, fontWeight: '700' }}>
+                  {(data.earningsSummary?.week?.txCount ?? 0)} Tx Logs
                 </Text>
               </View>
             </View>
@@ -444,11 +435,8 @@ export default function DashboardScreen() {
                 </Text>
               </View>
               <View style={{ alignItems: 'flex-end' }}>
-                <Text style={{ color: C.success, fontSize: 11, fontWeight: '700' }}>
-                  Gross: ₱{(data.earningsSummary?.month?.grossProfit ?? 0).toLocaleString('en-US')}
-                </Text>
-                <Text style={{ color: C.danger, fontSize: 10, marginTop: 2 }}>
-                  Exp: ₱{(data.earningsSummary?.month?.expenses ?? 0).toLocaleString('en-US')}
+                <Text style={{ color: C.accent, fontSize: 11, fontWeight: '700' }}>
+                  {(data.earningsSummary?.month?.txCount ?? 0)} Tx Logs
                 </Text>
               </View>
             </View>
@@ -501,11 +489,8 @@ export default function DashboardScreen() {
                   </Text>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={{ color: C.success, fontSize: 11, fontWeight: '700' }}>
-                    Gross: ₱{customNDaySummary.grossProfit.toLocaleString('en-US')}
-                  </Text>
-                  <Text style={{ color: C.danger, fontSize: 10, marginTop: 2 }}>
-                    Exp: ₱{customNDaySummary.expenses.toLocaleString('en-US')}
+                  <Text style={{ color: C.accent, fontSize: 11, fontWeight: '700' }}>
+                    {customNDaySummary.txCount} Tx Logs
                   </Text>
                 </View>
               </View>
@@ -622,21 +607,15 @@ export default function DashboardScreen() {
 
               <View style={{ flexDirection: 'row', gap: 8 }}>
                 <View style={{ flex: 1, backgroundColor: C.surface, padding: 10, borderRadius: 12, borderWidth: 1, borderColor: C.border }}>
-                  <Text style={{ color: C.text3, fontSize: 9, textTransform: 'uppercase', fontWeight: '700' }}>Gross Fee</Text>
-                  <Text style={{ color: C.success, fontSize: 14, fontWeight: '800', marginTop: 2 }}>
+                  <Text style={{ color: C.text3, fontSize: 9, textTransform: 'uppercase', fontWeight: '700' }}>Profit / Fees</Text>
+                  <Text style={{ color: C.accent, fontSize: 14, fontWeight: '800', marginTop: 2 }}>
                     ₱{(selectedDayInfo.grossProfit || selectedDayInfo.profit || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </Text>
                 </View>
                 <View style={{ flex: 1, backgroundColor: C.surface, padding: 10, borderRadius: 12, borderWidth: 1, borderColor: C.border }}>
-                  <Text style={{ color: C.text3, fontSize: 9, textTransform: 'uppercase', fontWeight: '700' }}>Expenses</Text>
-                  <Text style={{ color: C.danger, fontSize: 14, fontWeight: '800', marginTop: 2 }}>
-                    ₱{(selectedDayInfo.expenses || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                  </Text>
-                </View>
-                <View style={{ flex: 1, backgroundColor: C.surface, padding: 10, borderRadius: 12, borderWidth: 1, borderColor: C.border }}>
-                  <Text style={{ color: C.text3, fontSize: 9, textTransform: 'uppercase', fontWeight: '700' }}>Net Profit</Text>
-                  <Text style={{ color: (selectedDayInfo.netProfit ?? ((selectedDayInfo.grossProfit || selectedDayInfo.profit || 0) - (selectedDayInfo.expenses || 0))) >= 0 ? C.accent : C.danger, fontSize: 14, fontWeight: '800', marginTop: 2 }}>
-                    ₱{(selectedDayInfo.netProfit ?? ((selectedDayInfo.grossProfit || selectedDayInfo.profit || 0) - (selectedDayInfo.expenses || 0))).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  <Text style={{ color: C.text3, fontSize: 9, textTransform: 'uppercase', fontWeight: '700' }}>Transactions</Text>
+                  <Text style={{ color: C.text1, fontSize: 14, fontWeight: '800', marginTop: 2 }}>
+                    {selectedDayInfo.txCount || 0} Logs
                   </Text>
                 </View>
               </View>

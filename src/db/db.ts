@@ -147,14 +147,7 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
       FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL
     );
 
-    CREATE TABLE IF NOT EXISTS expenses (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      description TEXT NOT NULL,
-      category TEXT NOT NULL DEFAULT 'OTHER',
-      amount REAL NOT NULL,
-      channel TEXT NOT NULL DEFAULT 'PHYSICAL_CASH',
-      created_at TEXT NOT NULL
-    );
+
 
     CREATE TABLE IF NOT EXISTS wallets (
       channel TEXT PRIMARY KEY NOT NULL,
@@ -182,9 +175,7 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
   try {
     await db.execAsync("ALTER TABLE customers ADD COLUMN last_reminded_at TEXT;");
   } catch {}
-  try {
-    await db.execAsync("ALTER TABLE expenses ADD COLUMN category TEXT NOT NULL DEFAULT 'OTHER';");
-  } catch {}
+
 
   // Drop old triggers to redefine them
   await db.execAsync(`
@@ -328,30 +319,6 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
               END)
            ELSE 0 END)
       WHERE channel IN (OLD.channel, NEW.channel, 'PHYSICAL_CASH');
-    END;
-  `);
-
-  // Create SQLite triggers for expense insertions
-  await db.execAsync(`
-    CREATE TRIGGER IF NOT EXISTS tr_expense_insert
-    AFTER INSERT ON expenses
-    FOR EACH ROW
-    BEGIN
-      UPDATE wallets
-      SET balance = balance - NEW.amount
-      WHERE channel = NEW.channel;
-    END;
-  `);
-
-  // Create SQLite triggers for expense deletions
-  await db.execAsync(`
-    CREATE TRIGGER IF NOT EXISTS tr_expense_delete
-    AFTER DELETE ON expenses
-    FOR EACH ROW
-    BEGIN
-      UPDATE wallets
-      SET balance = balance + OLD.amount
-      WHERE channel = OLD.channel;
     END;
   `);
 
