@@ -237,7 +237,7 @@ const saveWebDb = (db: any) => {
 };
 
 const getDebtBalanceForCustomer = (
-  transactions: Array<{
+  transactions: {
     id: number;
     customer_id: number | null;
     is_debt: number;
@@ -245,7 +245,7 @@ const getDebtBalanceForCustomer = (
     fee: number;
     amount: number;
     type: string;
-  }>,
+  }[],
   customerId: number,
   excludedTxId?: number
 ) => {
@@ -1259,7 +1259,7 @@ export function useDbQueries() {
         });
 
         const overdueDebtors: { name: string; balance: number; oldest_debt_date: string | null }[] = [];
-        for (const [customerId, custTxs] of customerTxMap.entries()) {
+        for (const [, custTxs] of customerTxMap.entries()) {
           const name = custTxs[0]?.customer_name || 'Unknown';
           let balance = 0;
           custTxs.forEach((tx) => {
@@ -1741,11 +1741,24 @@ export function useDbQueries() {
   const useResetDatabase = () => {
     return useMutation({
       mutationFn: async () => {
-        await db.withTransactionAsync(async () => {
-          await db.execAsync("DELETE FROM transactions");
-          await db.execAsync("DELETE FROM customers");
-          await db.execAsync("UPDATE wallets SET balance = 0.0");
-        });
+        await db.execAsync(`
+          DROP TRIGGER IF EXISTS tr_transaction_insert;
+          DROP TRIGGER IF EXISTS tr_transaction_delete;
+          DROP TRIGGER IF EXISTS tr_transaction_update;
+          DROP TRIGGER IF EXISTS tr_expense_insert;
+          DROP TRIGGER IF EXISTS tr_expense_delete;
+          DROP TRIGGER IF EXISTS tr_wallet_balance_guard;
+        `);
+
+        try {
+          await db.withTransactionAsync(async () => {
+            await db.execAsync("DELETE FROM transactions");
+            await db.execAsync("DELETE FROM customers");
+            await db.execAsync("UPDATE wallets SET balance = 0.0");
+          });
+        } finally {
+          await migrateDbIfNeeded(db);
+        }
       },
       onSuccess: () => {
         queryClient.invalidateQueries();

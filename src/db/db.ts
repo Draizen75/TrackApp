@@ -52,7 +52,7 @@ async function repairBrokenDebtPayments(db: SQLite.SQLiteDatabase) {
   `);
 
   const runningBalances = new Map<number, number>();
-  const repairs: Array<{ id: number; customerId: number }> = [];
+  const repairs: { id: number; customerId: number }[] = [];
 
   for (const tx of transactions) {
     if (tx.type === 'DEBT_PAYMENT' && tx.customer_id == null) {

@@ -3,7 +3,7 @@ import { useToast } from '@/components/toast';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useLocalSearchParams, useFocusEffect, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { PlusCircle, Search, UserPlus } from 'lucide-react-native';
+import { Search, UserPlus } from 'lucide-react-native';
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { KeyboardAvoidingView, ScrollView, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';

@@ -1,6 +1,7 @@
 import { useToast } from '@/components/toast';
 import { BackupData, cleanErrorMessage, useDbQueries } from '@/hooks/useDbQueries';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
 import * as Sharing from 'expo-sharing';
 import {
@@ -8,6 +9,7 @@ import {
   ChevronRight,
   Coins,
   Database,
+  FolderOpen,
   Settings,
   Share2,
   Trash2,
@@ -15,7 +17,7 @@ import {
   Upload,
   X
 } from 'lucide-react-native';
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Alert, KeyboardAvoidingView, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -159,6 +161,69 @@ export default function DataScreen() {
   const [isBackupExporting, setIsBackupExporting] = useState(false);
   const [restoreModalVisible, setRestoreModalVisible] = useState(false);
   const [backupJson, setBackupJson] = useState('');
+
+  // Backup file picker helper
+  const handlePickBackupFile = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/json',
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        return;
+      }
+
+      let fileContent = '';
+      const asset = result.assets[0];
+      if (process.env.EXPO_OS === 'web') {
+        const file = asset.file;
+        if (file) {
+          fileContent = await file.text();
+        }
+      } else {
+        // Use standard fetch to read local file contents (handles file:// and content:// streams)
+        const response = await fetch(asset.uri);
+        fileContent = await response.text();
+      }
+
+      if (!fileContent.trim()) {
+        Alert.alert("Empty File", "The selected file is empty.");
+        return;
+      }
+
+      setBackupJson(fileContent);
+      showToast("Backup file loaded successfully. Verify summary below and tap Restore.", "info");
+    } catch (err: any) {
+      Alert.alert("File Error", "Could not read the selected backup file: " + err.message);
+    }
+  };
+
+  const backupPreview = useMemo(() => {
+    if (!backupJson.trim()) return null;
+    try {
+      const parsed = JSON.parse(backupJson.trim()) as BackupData;
+      if (parsed.schema !== 'trackapp.backup' || parsed.version !== 1) {
+        return { valid: false, error: 'Not a supported TrackApp backup format.' };
+      }
+      return {
+        valid: true,
+        transactionsCount: parsed.transactions?.length ?? 0,
+        customersCount: parsed.customers?.length ?? 0,
+        walletsCount: parsed.wallets?.length ?? 0,
+        settingsCount: parsed.settings ? Object.keys(parsed.settings).length : 0,
+        exportedAt: parsed.exported_at ? new Date(parsed.exported_at).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        }) : 'Unknown date',
+      };
+    } catch {
+      return { valid: false, error: 'Invalid JSON syntax.' };
+    }
+  }, [backupJson]);
 
   // New wallet creations states
   const [addWalletModalVisible, setAddWalletModalVisible] = useState(false);
@@ -503,13 +568,38 @@ export default function DataScreen() {
         URL.revokeObjectURL(url);
         showToast("CSV exported successfully!", "success");
       } else {
+        if (process.env.EXPO_OS === 'android') {
+          try {
+            const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+            if (permissions.granted) {
+              const fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
+                permissions.directoryUri,
+                filename,
+                'text/csv'
+              );
+              await FileSystem.writeAsStringAsync(fileUri, csvString, {
+                encoding: FileSystem.EncodingType.UTF8,
+              });
+              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              showToast("CSV saved to selected folder successfully!", "success");
+              return;
+            }
+          } catch {
+            // fallback to sharing sheet below
+          }
+        }
+
         const fileUri = FileSystem.documentDirectory + filename;
         await FileSystem.writeAsStringAsync(fileUri, csvString, {
           encoding: FileSystem.EncodingType.UTF8,
         });
         if (await Sharing.isAvailableAsync()) {
           await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          await Sharing.shareAsync(fileUri);
+          await Sharing.shareAsync(fileUri, {
+            mimeType: 'text/csv',
+            dialogTitle: 'Save CSV Ledger',
+            UTI: 'public.comma-separated-values-text'
+          });
         } else {
           Alert.alert("Saved Locally", `CSV exported to:\n${fileUri}`);
         }
@@ -551,13 +641,38 @@ export default function DataScreen() {
         URL.revokeObjectURL(url);
         showToast("JSON backup exported successfully!", "success");
       } else {
+        if (process.env.EXPO_OS === 'android') {
+          try {
+            const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+            if (permissions.granted) {
+              const fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
+                permissions.directoryUri,
+                filename,
+                'application/json'
+              );
+              await FileSystem.writeAsStringAsync(fileUri, jsonString, {
+                encoding: FileSystem.EncodingType.UTF8,
+              });
+              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              showToast("JSON backup saved to selected folder successfully!", "success");
+              return;
+            }
+          } catch {
+            // fallback to sharing sheet below
+          }
+        }
+
         const fileUri = FileSystem.documentDirectory + filename;
         await FileSystem.writeAsStringAsync(fileUri, jsonString, {
           encoding: FileSystem.EncodingType.UTF8,
         });
         if (await Sharing.isAvailableAsync()) {
           await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          await Sharing.shareAsync(fileUri);
+          await Sharing.shareAsync(fileUri, {
+            mimeType: 'application/json',
+            dialogTitle: 'Save JSON Backup',
+            UTI: 'public.json'
+          });
         } else {
           Alert.alert("Saved Locally", `JSON backup exported to:\n${fileUri}`);
         }
@@ -1071,7 +1186,7 @@ export default function DataScreen() {
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
                 <View style={{ flex: 1, paddingRight: 12 }}>
                   <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase' }}>Restore Backup</Text>
-                  <Text style={{ color: C.text1, fontSize: 18, fontWeight: '800', marginTop: 2 }}>Paste JSON Backup</Text>
+                  <Text style={{ color: C.text1, fontSize: 18, fontWeight: '800', marginTop: 2 }}>Load JSON Backup</Text>
                 </View>
                 <TouchableOpacity
                   onPress={() => setRestoreModalVisible(false)}
@@ -1083,13 +1198,74 @@ export default function DataScreen() {
               </View>
 
               <Text style={{ color: C.text3, fontSize: 11, lineHeight: 16, marginBottom: 12 }}>
-                Paste the full contents of a TrackApp JSON backup file. Restoring replaces the current local ledger.
+                Load a TrackApp backup `.json` file from storage or paste the raw string to restore the database.
               </Text>
+
+              {/* Picker Button */}
+              <TouchableOpacity
+                onPress={handlePickBackupFile}
+                disabled={restoreBackupMutation.isPending}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: C.surface2,
+                  borderWidth: 1.5,
+                  borderColor: C.accent,
+                  paddingVertical: 12,
+                  borderRadius: 16,
+                  marginBottom: 16,
+                  gap: 8,
+                  opacity: restoreBackupMutation.isPending ? 0.5 : 1,
+                }}
+              >
+                <FolderOpen size={16} color={C.accent} />
+                <Text style={{ color: C.accent, fontWeight: '800', fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase' }}>
+                  Choose Backup File
+                </Text>
+              </TouchableOpacity>
+
+              {/* Preview Box */}
+              {backupPreview && (
+                <View style={{
+                  backgroundColor: backupPreview.valid ? 'rgba(90,155,110,0.08)' : 'rgba(220,107,90,0.08)',
+                  borderWidth: 1,
+                  borderColor: backupPreview.valid ? C.success : C.danger,
+                  padding: 12,
+                  borderRadius: 16,
+                  marginBottom: 16
+                }}>
+                  <Text style={{ color: backupPreview.valid ? C.success : C.danger, fontSize: 10, fontWeight: '900', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>
+                    {backupPreview.valid ? '✓ Valid Backup Loaded' : '✗ Verification Failed'}
+                  </Text>
+                  {backupPreview.valid ? (
+                    <>
+                      <Text style={{ color: C.text2, fontSize: 11 }}>
+                        Exported: <Text style={{ color: C.text1, fontWeight: '700' }}>{backupPreview.exportedAt}</Text>
+                      </Text>
+                      <View style={{ height: 1, backgroundColor: C.border, marginVertical: 8 }} />
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                        <Text style={{ color: C.text3, fontSize: 10 }}>Txs: <Text style={{ color: C.text2, fontWeight: '700' }}>{backupPreview.transactionsCount}</Text></Text>
+                        <Text style={{ color: C.text3, fontSize: 10 }}>Customers: <Text style={{ color: C.text2, fontWeight: '700' }}>{backupPreview.customersCount}</Text></Text>
+                        <Text style={{ color: C.text3, fontSize: 10 }}>Wallets: <Text style={{ color: C.text2, fontWeight: '700' }}>{backupPreview.walletsCount}</Text></Text>
+                      </View>
+                    </>
+                  ) : (
+                    <Text style={{ color: C.text2, fontSize: 11 }}>{backupPreview.error}</Text>
+                  )}
+                </View>
+              )}
+
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                <View style={{ flex: 1, height: 1, backgroundColor: C.border }} />
+                <Text style={{ color: C.text3, fontSize: 8, fontWeight: '800', textTransform: 'uppercase', paddingHorizontal: 10 }}>Or Paste JSON Raw String</Text>
+                <View style={{ flex: 1, height: 1, backgroundColor: C.border }} />
+              </View>
 
               <TextInput
                 style={{
-                  minHeight: 220,
-                  maxHeight: 320,
+                  minHeight: 120,
+                  maxHeight: 160,
                   backgroundColor: C.bg,
                   borderWidth: 1,
                   borderColor: C.border,
@@ -1097,7 +1273,7 @@ export default function DataScreen() {
                   borderRadius: 16,
                   paddingHorizontal: 14,
                   paddingVertical: 12,
-                  fontSize: 12,
+                  fontSize: 11,
                   marginBottom: 18,
                   textAlignVertical: 'top',
                 }}
