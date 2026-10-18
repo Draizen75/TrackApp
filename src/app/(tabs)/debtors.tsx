@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Modal, KeyboardAvoidingView } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Modal, KeyboardAvoidingView, FlatList } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useDbQueries, Debtor, cleanErrorMessage } from '@/hooks/useDbQueries';
+import { calculateDebtPaymentAllocation, calculateLedgerDebtAllocation, useDbQueries, Debtor, cleanErrorMessage } from '@/hooks/useDbQueries';
 import { useToast } from '@/components/toast';
 import { useRouter } from 'expo-router';
 import { 
@@ -15,6 +15,7 @@ import {
   ChevronUp,
   Trash2,
   PlusCircle,
+  Pencil,
 } from 'lucide-react-native';
 import * as SMS from 'expo-sms';
 import * as Haptics from 'expo-haptics';
@@ -42,12 +43,13 @@ const C = {
 export default function DebtorsScreen() {
   const { showToast } = useToast();
   const router = useRouter();
-  const { useDebtors, useSettleDebt, useTransactions, useWallets, useDeleteCustomer, useUpdateCustomerMeta } = useDbQueries();
+  const { useDebtors, useSettleDebt, useTransactions, useWallets, useDeleteCustomer, useDeleteTransaction, useUpdateCustomerMeta } = useDbQueries();
   const { data: debtors = [], isLoading, refetch } = useDebtors();
   const { data: transactions = [] } = useTransactions();
   const { data: wallets = [] } = useWallets();
   const settleMutation = useSettleDebt();
   const deleteCustomerMutation = useDeleteCustomer();
+  const deleteTransactionMutation = useDeleteTransaction();
   const updateCustomerMetaMutation = useUpdateCustomerMeta();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -58,7 +60,7 @@ export default function DebtorsScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [showSettledList, setShowSettledList] = useState(false);
-  const [sortMode, setSortMode] = useState<'overdue' | 'recent_activity' | 'largest' | 'recent_payment'>('overdue');
+  const [sortMode, setSortMode] = useState<'overdue' | 'recent_activity' | 'largest' | 'recent_payment'>('recent_activity');
 
   const handleSendSMS = async (debtor: Debtor) => {
     if (process.env.EXPO_OS !== 'web') {
@@ -93,6 +95,15 @@ export default function DebtorsScreen() {
     setSettleAmount(debtor.balance.toString());
     setSettleProfit('');
     setModalVisible(true);
+  };
+
+  const handleSettlementAmountChange = (value: string) => {
+    setSettleAmount(value);
+    const received = parseFloat(value);
+    if (!selectedDebtor || !Number.isFinite(received) || received <= 0) return;
+
+    const excess = Math.max(0, received - selectedDebtor.balance);
+    setSettleProfit(excess > 0 ? excess.toFixed(2) : '');
   };
 
   const handleQuickFullSettle = async (debtor: Debtor) => {
@@ -150,6 +161,40 @@ export default function DebtorsScreen() {
     );
   };
 
+  const openTransactionEditor = (transactionId: number) => {
+    setDetailModalVisible(false);
+    router.push({ pathname: '/history', params: { editTxId: transactionId.toString() } });
+  };
+
+  const handleDeleteLedgerTransaction = (transactionId: number) => {
+    const revert = () => deleteTransactionMutation.mutate(transactionId, {
+      onSuccess: () => {
+        setDetailModalVisible(false);
+        refetch();
+        showToast('Transaction reverted successfully.', 'info');
+      },
+      onError: (error: unknown) => {
+        Alert.alert('Error', cleanErrorMessage(error));
+      },
+    });
+
+    if (process.env.EXPO_OS === 'web') {
+      if (window.confirm('Are you sure you want to revert this transaction? This will automatically restore the original wallet balances.')) {
+        revert();
+      }
+      return;
+    }
+
+    Alert.alert(
+      'Revert Transaction',
+      'Are you sure you want to delete this record? This will automatically reverse the transaction and restore the original wallet floats.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Revert', style: 'destructive', onPress: revert },
+      ]
+    );
+  };
+
   const openDebtEntry = async (debtor: Debtor) => {
     if (process.env.EXPO_OS !== 'web') {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -166,11 +211,14 @@ export default function DebtorsScreen() {
 
   const submitSettlement = async () => {
     if (!selectedDebtor || settleMutation.isPending) return; // Prevent double trigger
-    const parsedAmount = parseFloat(settleAmount);
-    const amount = Number.isFinite(parsedAmount) ? parsedAmount : 0;
-    const profit = parseFloat(settleProfit) || 0;
+    const parsedReceived = parseFloat(settleAmount);
+    const received = Number.isFinite(parsedReceived) ? parsedReceived : 0;
+    const amount = Math.min(received, selectedDebtor.balance);
+    const profit = received > 0
+      ? Math.max(0, received - selectedDebtor.balance)
+      : (parseFloat(settleProfit) || 0);
 
-    if (amount < 0 || profit < 0) {
+    if (received < 0 || profit < 0) {
       Alert.alert("Invalid Amount", "Please enter non-negative amounts.");
       return;
     }
@@ -178,11 +226,6 @@ export default function DebtorsScreen() {
       Alert.alert("Invalid Amount", "Enter a principal payment or an extra profit/interest payment.");
       return;
     }
-    if (amount - selectedDebtor.balance > 0.01) {
-      Alert.alert("Invalid Amount", "Principal payment cannot exceed the debtor balance of " + selectedDebtor.balance.toFixed(2));
-      return;
-    }
-
     try {
       if (process.env.EXPO_OS !== 'web') {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -204,7 +247,12 @@ export default function DebtorsScreen() {
         showToast(`Recorded PHP ${profit.toFixed(2)} interest for ${name}. Debt principal unchanged.`, 'success');
         return;
       }
-      showToast(`Settled ₱${amount.toFixed(2)} for ${name}.`, 'success');
+      showToast(
+        profit > 0
+          ? `Recorded ₱${amount.toFixed(2)} debt payment and ₱${profit.toFixed(2)} extra profit for ${name}.`
+          : `Settled ₱${amount.toFixed(2)} for ${name}.`,
+        'success'
+      );
     } catch (e: any) {
       Alert.alert("Error", cleanErrorMessage(e));
     }
@@ -267,13 +315,33 @@ export default function DebtorsScreen() {
   }, [filteredDebtors, sortMode]);
   const settledDebtors = useMemo(() => filteredDebtors.filter(d => d.balance === 0), [filteredDebtors]);
 
-  const totalOutstanding = debtors.reduce((sum, d) => sum + d.balance, 0);
+  const debtPortfolioSummary = useMemo(() => {
+    const allocation = calculateLedgerDebtAllocation(transactions);
+    return {
+      earningsPaid: allocation.contractualEarningsPaid + allocation.extraProfitPaid,
+      pendingEarnings: allocation.pendingEarnings,
+      principalPaid: allocation.principalPaid,
+      pendingPrincipal: allocation.pendingPrincipal,
+      outstanding: allocation.pendingPrincipal + allocation.pendingEarnings,
+    };
+  }, [transactions]);
 
   // Filter transactions for selected debtor
   const debtorLedgerHistory = useMemo(() => {
     if (!selectedDebtor) return [];
     return transactions.filter(t => t.customer_id === selectedDebtor.id && (t.is_debt === 1 || t.type === 'DEBT_PAYMENT'));
   }, [transactions, selectedDebtor]);
+
+  const debtorStatementSummary = useMemo(() => {
+    const allocation = calculateDebtPaymentAllocation(debtorLedgerHistory);
+    return {
+      principalPaid: allocation.principalPaid,
+      earningsPaid: allocation.contractualEarningsPaid + allocation.extraProfitPaid,
+      pendingPrincipal: allocation.pendingPrincipal,
+      pendingEarnings: allocation.pendingEarnings,
+      pending: allocation.pendingPrincipal + allocation.pendingEarnings,
+    };
+  }, [debtorLedgerHistory]);
 
   const renderRightActions = (debtor: Debtor) => {
     if (debtor.balance <= 0) return null; // No swipe full settle if already paid
@@ -347,19 +415,35 @@ export default function DebtorsScreen() {
               borderWidth: 1,
               borderColor: C.border,
               marginBottom: 16,
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center',
             }}
           >
-            <View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View>
               <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>Total Outstanding Debt</Text>
               <Text style={{ fontSize: 28, fontWeight: '900', color: C.accent, letterSpacing: -0.5 }}>
-                ₱{totalOutstanding.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                ₱{debtPortfolioSummary.outstanding.toLocaleString('en-US', { minimumFractionDigits: 2 })}
               </Text>
+              </View>
+              <View style={{ backgroundColor: C.accentDim, padding: 12, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(230,168,23,0.2)' }}>
+                <AlertTriangle size={24} color={C.accent} />
+              </View>
             </View>
-            <View style={{ backgroundColor: C.accentDim, padding: 12, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(230,168,23,0.2)' }}>
-              <AlertTriangle size={24} color={C.accent} />
+
+            <View style={{ height: 1, backgroundColor: C.border, marginVertical: 16 }} />
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+              {[
+                { label: 'Earnings Paid', value: debtPortfolioSummary.earningsPaid, color: C.success },
+                { label: 'Pending Earnings', value: debtPortfolioSummary.pendingEarnings, color: C.warning },
+                { label: 'Principal Paid', value: debtPortfolioSummary.principalPaid, color: C.text1 },
+                { label: 'Principal Pending', value: debtPortfolioSummary.pendingPrincipal, color: C.accent },
+              ].map((metric) => (
+                <View key={metric.label} style={{ width: '47%' }}>
+                  <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>{metric.label}</Text>
+                  <Text style={{ color: metric.color, fontSize: 14, fontWeight: '800', marginTop: 3, fontVariant: ['tabular-nums'] }}>
+                    ₱{metric.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </Text>
+                </View>
+              ))}
             </View>
           </View>
 
@@ -626,6 +710,24 @@ export default function DebtorsScreen() {
                     Last payment: {selectedDebtor?.last_payment_date ? new Date(selectedDebtor.last_payment_date).toLocaleDateString() : 'No payment yet'}
                   </Text>
                 </View>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 }}>
+                  <View style={{ flexGrow: 1, minWidth: '46%', backgroundColor: C.successDim, borderWidth: 1, borderColor: 'rgba(90,155,110,0.2)', borderRadius: 12, padding: 10 }}>
+                    <Text style={{ color: C.text3, fontSize: 8, fontWeight: '700', textTransform: 'uppercase' }}>Earnings Paid</Text>
+                    <Text style={{ color: C.success, fontSize: 13, fontWeight: '800', marginTop: 3 }}>₱{debtorStatementSummary.earningsPaid.toFixed(2)}</Text>
+                  </View>
+                  <View style={{ flexGrow: 1, minWidth: '46%', backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border, borderRadius: 12, padding: 10 }}>
+                    <Text style={{ color: C.text3, fontSize: 8, fontWeight: '700', textTransform: 'uppercase' }}>Principal Paid</Text>
+                    <Text style={{ color: C.text1, fontSize: 13, fontWeight: '800', marginTop: 3 }}>₱{debtorStatementSummary.principalPaid.toFixed(2)}</Text>
+                  </View>
+                  <View style={{ flexGrow: 1, minWidth: '46%', backgroundColor: C.accentDim, borderWidth: 1, borderColor: 'rgba(230,168,23,0.2)', borderRadius: 12, padding: 10 }}>
+                    <Text style={{ color: C.text3, fontSize: 8, fontWeight: '700', textTransform: 'uppercase' }}>Pending Earnings</Text>
+                    <Text style={{ color: C.accent, fontSize: 13, fontWeight: '800', marginTop: 3 }}>₱{debtorStatementSummary.pendingEarnings.toFixed(2)}</Text>
+                  </View>
+                  <View style={{ flexGrow: 1, minWidth: '46%', backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border, borderRadius: 12, padding: 10 }}>
+                    <Text style={{ color: C.text3, fontSize: 8, fontWeight: '700', textTransform: 'uppercase' }}>Pending Principal</Text>
+                    <Text style={{ color: C.text1, fontSize: 13, fontWeight: '800', marginTop: 3 }}>₱{debtorStatementSummary.pendingPrincipal.toFixed(2)}</Text>
+                  </View>
+                </View>
                 <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
                   {selectedDebtor && selectedDebtor.balance > 0 ? (
                     <>
@@ -655,10 +757,62 @@ export default function DebtorsScreen() {
               {/* Itemized Ledger */}
               <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 12 }}>Ledger History</Text>
               
-              <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 20 }}>
-                {debtorLedgerHistory.length === 0 ? (
-                  <Text style={{ color: C.text3, fontSize: 12, textAlign: 'center', paddingVertical: 20 }}>No transaction history for this customer.</Text>
-                ) : (
+              <FlatList
+                data={debtorLedgerHistory}
+                keyExtractor={(transaction) => transaction.id.toString()}
+                initialNumToRender={10}
+                maxToRenderPerBatch={10}
+                windowSize={5}
+                showsVerticalScrollIndicator={false}
+                style={{ flex: 1 }}
+                contentContainerStyle={{ paddingBottom: 20 }}
+                ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+                ListEmptyComponent={<Text style={{ color: C.text3, fontSize: 12, textAlign: 'center', paddingVertical: 20 }}>No transaction history for this customer.</Text>}
+                renderItem={({ item: tx }) => {
+                  const isPayment = tx.type === 'DEBT_PAYMENT';
+                  const txTotal = isPayment ? tx.amount : (tx.amount + (tx.deduct_fee === 1 ? 0 : tx.fee));
+                  const isInterestOnlyPayment = isPayment && tx.amount === 0 && tx.fee > 0;
+                  const formattedDate = tx.created_at
+                    ? new Date(tx.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                    : 'N/A';
+
+                  return (
+                    <View style={{ backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border, borderRadius: 14, padding: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <View style={{ flex: 1, marginRight: 8 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                          <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: isPayment ? C.successDim : C.dangerDim, borderWidth: 1, borderColor: isPayment ? 'rgba(90,155,110,0.15)' : 'rgba(220,107,90,0.15)' }}>
+                            <Text style={{ color: isPayment ? C.success : C.danger, fontSize: 7, fontWeight: '900', textTransform: 'uppercase' }}>{isInterestOnlyPayment ? 'Interest' : isPayment ? 'Payment' : 'Debt'}</Text>
+                          </View>
+                          <Text style={{ color: C.text1, fontSize: 12, fontWeight: '700' }}>{getTxTypeLabel(tx.type)}</Text>
+                        </View>
+                        <Text style={{ color: C.text3, fontSize: 9 }}>{formattedDate} • via {getWalletLabel(tx.channel)}</Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={{ color: isPayment ? C.success : C.danger, fontSize: 13, fontWeight: '800' }}>{isPayment ? '-' : '+'}₱{txTotal.toFixed(2)}</Text>
+                        {isPayment && tx.fee > 0 && <Text style={{ color: C.accent, fontSize: 8 }}>Profit paid PHP {tx.fee.toFixed(2)}</Text>}
+                        {!isPayment && tx.fee > 0 && <Text style={{ color: C.text3, fontSize: 8 }}>{tx.deduct_fee === 1 ? `Deducted ₱${tx.fee.toFixed(2)} fee` : `Inc. ₱${tx.fee.toFixed(2)} fee`}</Text>}
+                        <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
+                          <TouchableOpacity
+                            onPress={() => openTransactionEditor(tx.id)}
+                            style={{ padding: 6, backgroundColor: C.surface, borderRadius: 8, borderWidth: 1, borderColor: C.border }}
+                          >
+                            <Pencil size={13} color={C.accent} />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => handleDeleteLedgerTransaction(tx.id)}
+                            disabled={deleteTransactionMutation.isPending}
+                            style={{ padding: 6, backgroundColor: C.surface, borderRadius: 8, borderWidth: 1, borderColor: C.border, opacity: deleteTransactionMutation.isPending ? 0.5 : 1 }}
+                          >
+                            <Trash2 size={13} color={C.text3} />
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+                  );
+                }}
+              />
+              {/* Previous eager ledger mapping retained only as a disabled reference while FlatList owns rendering. */}
+              {/*
                   <View style={{ gap: 10 }}>
                     {debtorLedgerHistory.map((tx) => {
                       const isPayment = tx.type === 'DEBT_PAYMENT';
@@ -728,7 +882,7 @@ export default function DebtorsScreen() {
                     })}
                   </View>
                 )}
-              </ScrollView>
+              */}
             </View>
           </View>
         </Modal>
@@ -759,7 +913,7 @@ export default function DebtorsScreen() {
                 </TouchableOpacity>
               </View>
 
-              <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>Payment Received (₱)</Text>
+              <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>Total Payment Received (PHP)</Text>
               <TextInput
                 style={{
                   backgroundColor: C.bg,
@@ -775,13 +929,13 @@ export default function DebtorsScreen() {
                 }}
                 keyboardType="decimal-pad"
                 value={settleAmount}
-                onChangeText={setSettleAmount}
+                onChangeText={handleSettlementAmountChange}
                 placeholder="0.00"
                 placeholderTextColor={C.text3}
                 editable={!settleMutation.isPending}
               />
 
-              <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>Extra Profit (Optional ₱)</Text>
+              <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>Extra Profit (Auto-calculated)</Text>
               <TextInput
                 style={{
                   backgroundColor: C.bg,
@@ -800,8 +954,11 @@ export default function DebtorsScreen() {
                 onChangeText={setSettleProfit}
                 placeholder="0.00"
                 placeholderTextColor={C.text3}
-                editable={!settleMutation.isPending}
+                editable={!settleMutation.isPending && (!settleAmount || parseFloat(settleAmount) <= 0)}
               />
+              <Text style={{ color: C.text3, fontSize: 10, marginTop: -8, marginBottom: 16 }}>
+                Amounts above the pending balance are automatically recorded as extra profit. Set payment to 0 to record profit only.
+              </Text>
 
               <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>Destination Channel (Add Float)</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>

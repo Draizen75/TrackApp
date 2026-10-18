@@ -1,10 +1,10 @@
-import { useDbQueries, cleanErrorMessage, Debtor } from '@/hooks/useDbQueries';
+import { useDbQueries, cleanErrorMessage, Debtor, Transaction } from '@/hooks/useDbQueries';
 import { useToast } from '@/components/toast';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useLocalSearchParams, useFocusEffect, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { Search, UserPlus } from 'lucide-react-native';
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { History, Search, UserPlus } from 'lucide-react-native';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { KeyboardAvoidingView, ScrollView, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -55,11 +55,12 @@ export default function EntryScreen() {
   const router = useRouter();
   const { showToast } = useToast();
   const { debtorId, debtorName } = useLocalSearchParams<{ debtorId?: string; debtorName?: string }>();
-  const { useCustomers, useAddCustomer, useAddTransaction, useSettings, useWallets, useDebtors } = useDbQueries();
+  const { useCustomers, useAddCustomer, useAddTransaction, useSettings, useWallets, useDebtors, useTransactions } = useDbQueries();
   const { data: customers = [], refetch: refetchCustomers } = useCustomers();
   const { data: settings } = useSettings();
   const { data: wallets = [] } = useWallets();
   const { data: debtors = [] } = useDebtors();
+  const { data: transactions = [] } = useTransactions();
   const addCustomerMutation = useAddCustomer();
   const addTransactionMutation = useAddTransaction();
 
@@ -79,6 +80,7 @@ export default function EntryScreen() {
   const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(null);
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const skipNextFeeCalculation = useRef(false);
 
   const { control, handleSubmit, watch, setValue, formState: { errors, isSubmitting }, reset } = useForm<EntryFormValues>({
     resolver: zodResolver(entrySchema),
@@ -104,6 +106,11 @@ export default function EntryScreen() {
   const fee = parseFloat(feeStr) || 0;
 
   useEffect(() => {
+    if (skipNextFeeCalculation.current) {
+      skipNextFeeCalculation.current = false;
+      return;
+    }
+
     if (amount <= 0) {
       setValue('fee', '');
       return;
@@ -172,6 +179,41 @@ export default function EntryScreen() {
       return timeB - timeA;
     });
   }, [debtors]);
+
+  const lastRepeatableTransaction = useMemo(
+    () => transactions.find((transaction): transaction is Transaction =>
+      transaction.type === 'CASH_IN' ||
+      transaction.type === 'CASH_OUT' ||
+      transaction.type === 'E_LOAD' ||
+      transaction.type === 'TV_LOAD'
+    ),
+    [transactions]
+  );
+
+  const repeatLastTransaction = useCallback(async () => {
+    if (!lastRepeatableTransaction) return;
+
+    const customer = lastRepeatableTransaction.customer_id
+      ? customers.find((item: any) => item.id === lastRepeatableTransaction.customer_id)
+      : undefined;
+
+    skipNextFeeCalculation.current = true;
+    setValue('type', lastRepeatableTransaction.type as EntryFormValues['type']);
+    setValue('amount', lastRepeatableTransaction.amount.toString());
+    setValue('fee', lastRepeatableTransaction.fee.toString());
+    setValue('channel', lastRepeatableTransaction.channel);
+    setValue('is_debt', lastRepeatableTransaction.is_debt === 1);
+    setValue('deduct_fee', lastRepeatableTransaction.deduct_fee === 1);
+    setValue('customerName', customer?.name || '');
+    setSelectedCustomerId(customer?.id ?? null);
+    setCustomerSearchQuery(customer?.name || '');
+    setShowCustomerDropdown(false);
+
+    if (process.env.EXPO_OS !== 'web') {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    showToast('Last transaction copied. Review and log when ready.', 'info');
+  }, [customers, lastRepeatableTransaction, setValue, showToast]);
 
   const selectCustomer = (id: number, name: string) => {
     setSelectedCustomerId(id);
@@ -321,9 +363,22 @@ export default function EntryScreen() {
 
             {/* 1. Transaction Type Toggle */}
             <View style={{ marginBottom: 20 }}>
-              <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>
-                Transaction Type
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase' }}>
+                  Transaction Type
+                </Text>
+                {lastRepeatableTransaction && (
+                  <TouchableOpacity
+                    onPress={repeatLastTransaction}
+                    accessibilityRole="button"
+                    accessibilityLabel="Repeat last transaction"
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 4 }}
+                  >
+                    <History size={13} color={C.accent} />
+                    <Text style={{ color: C.accent, fontSize: 10, fontWeight: '800' }}>Repeat last</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
               <Controller
                 control={control}
                 name="type"

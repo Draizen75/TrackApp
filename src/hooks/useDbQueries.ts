@@ -44,15 +44,6 @@ export interface Transaction {
   created_at: string;
 }
 
-export interface Expense {
-  id: number;
-  description: string;
-  category?: string;
-  amount: number;
-  channel: string;
-  created_at: string;
-}
-
 export interface Wallet {
   channel: string;
   balance: number;
@@ -83,14 +74,12 @@ export interface DailyProfitItem {
   date: string;
   profit: number; // gross fee (backward compatible)
   grossProfit: number;
-  expenses: number;
   netProfit: number;
   txCount: number;
 }
 
 export interface EarningsTimeframeSummary {
   grossProfit: number;
-  expenses: number;
   netProfit: number;
   txCount: number;
 }
@@ -105,7 +94,6 @@ export interface EarningsSummary {
 
 export interface ExportData {
   transactions: (Transaction & { customer_name?: string | null })[];
-  expenses: Expense[];
   debtors: Debtor[];
 }
 
@@ -115,7 +103,6 @@ export interface BackupData {
   exported_at: string;
   customers: Customer[];
   transactions: Transaction[];
-  expenses: Expense[];
   wallets: Wallet[];
   settings: Record<string, string>;
 }
@@ -156,6 +143,108 @@ export function calculateOldestUnpaidDebtDate(customerTransactions: Transaction[
   return null;
 }
 
+export interface DebtPaymentAllocation {
+  principalPaid: number;
+  contractualEarningsPaid: number;
+  extraProfitPaid: number;
+  pendingPrincipal: number;
+  pendingEarnings: number;
+}
+
+/**
+ * Applies debt payments FIFO: contractual earnings first, then principal.
+ * Payment fees are separately tracked as extra collected profit and never reduce debt.
+ */
+export function calculateDebtPaymentAllocation(customerTransactions: Transaction[]): DebtPaymentAllocation {
+  const result: DebtPaymentAllocation = {
+    principalPaid: 0,
+    contractualEarningsPaid: 0,
+    extraProfitPaid: 0,
+    pendingPrincipal: 0,
+    pendingEarnings: 0,
+  };
+  const debts: { principal: number; earnings: number }[] = [];
+  const sorted = [...customerTransactions].sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime() || a.id - b.id
+  );
+
+  for (const transaction of sorted) {
+    if (transaction.is_debt === 1) {
+      debts.push({
+        principal: Number(transaction.amount) || 0,
+        earnings: transaction.deduct_fee === 1 ? 0 : (Number(transaction.fee) || 0),
+      });
+      continue;
+    }
+    if (transaction.type !== 'DEBT_PAYMENT') continue;
+
+    result.extraProfitPaid += Number(transaction.fee) || 0;
+    let remainingPayment = Number(transaction.amount) || 0;
+    for (const debt of debts) {
+      if (remainingPayment <= 0) break;
+      const earningsApplied = Math.min(remainingPayment, debt.earnings);
+      debt.earnings -= earningsApplied;
+      remainingPayment -= earningsApplied;
+      result.contractualEarningsPaid += earningsApplied;
+
+      const principalApplied = Math.min(remainingPayment, debt.principal);
+      debt.principal -= principalApplied;
+      remainingPayment -= principalApplied;
+      result.principalPaid += principalApplied;
+    }
+  }
+
+  for (const debt of debts) {
+    result.pendingPrincipal += debt.principal;
+    result.pendingEarnings += debt.earnings;
+  }
+  return result;
+}
+
+/**
+ * Aggregates FIFO debt allocations without letting one customer's payment settle another customer's debt.
+ * Unlinked historical credit is kept fully pending because it cannot be safely matched to a payment.
+ */
+export function calculateLedgerDebtAllocation(transactions: Transaction[]): DebtPaymentAllocation {
+  const result: DebtPaymentAllocation = {
+    principalPaid: 0,
+    contractualEarningsPaid: 0,
+    extraProfitPaid: 0,
+    pendingPrincipal: 0,
+    pendingEarnings: 0,
+  };
+  const transactionsByCustomer = new Map<number, Transaction[]>();
+
+  for (const transaction of transactions) {
+    if (transaction.is_debt !== 1 && transaction.type !== 'DEBT_PAYMENT') continue;
+
+    if (transaction.customer_id == null) {
+      if (transaction.is_debt === 1) {
+        result.pendingPrincipal += Number(transaction.amount) || 0;
+        result.pendingEarnings += transaction.deduct_fee === 1 ? 0 : (Number(transaction.fee) || 0);
+      } else {
+        result.extraProfitPaid += Number(transaction.fee) || 0;
+      }
+      continue;
+    }
+
+    const customerTransactions = transactionsByCustomer.get(transaction.customer_id) || [];
+    customerTransactions.push(transaction);
+    transactionsByCustomer.set(transaction.customer_id, customerTransactions);
+  }
+
+  for (const customerTransactions of transactionsByCustomer.values()) {
+    const allocation = calculateDebtPaymentAllocation(customerTransactions);
+    result.principalPaid += allocation.principalPaid;
+    result.contractualEarningsPaid += allocation.contractualEarningsPaid;
+    result.extraProfitPaid += allocation.extraProfitPaid;
+    result.pendingPrincipal += allocation.pendingPrincipal;
+    result.pendingEarnings += allocation.pendingEarnings;
+  }
+
+  return result;
+}
+
 // ─── WEB MOCK DATABASE ENGINE (localStorage backed for offline preview support) ───
 
 const channelNames: Record<string, string> = {
@@ -171,7 +260,6 @@ const defaultWebDb = {
     { id: 1, name: 'Sari-Sari Store Cash', phone: '', notes: '', follow_up_status: 'active', last_reminded_at: null, created_at: new Date().toISOString() }
   ],
   transactions: [] as any[],
-  expenses: [] as any[],
   wallets: {
     GCASH: 0,
     MAYA: 0,
@@ -219,7 +307,6 @@ const getWebDb = () => {
     const hydratedDb = {
       customers: parsed.customers || defaultWebDb.customers,
       transactions: parsed.transactions || defaultWebDb.transactions,
-      expenses: parsed.expenses || defaultWebDb.expenses,
       wallets: { ...defaultWebDb.wallets, ...(parsed.wallets || {}) },
       settings: { ...defaultWebDb.settings, ...(parsed.settings || {}) },
     };
@@ -321,17 +408,14 @@ const getDashboardMetrics = (db: any, daysLimit = 30) => {
   const walletsMap = db.wallets || {};
 
   const grossProfit = transactions.reduce((sum: number, tx: any) => sum + (Number(tx.fee) || 0), 0);
-  const totalExpenses = 0;
-  const netProfit = grossProfit;
-
-  const totalDebt = transactions.reduce((sum: number, tx: any) => {
-    if (tx.is_debt) {
-      const fee = tx.deduct_fee === 1 ? 0 : (Number(tx.fee) || 0);
-      return sum + (Number(tx.amount) || 0) + fee;
-    }
-    if (tx.type === 'DEBT_PAYMENT') return sum - (Number(tx.amount) || 0);
-    return sum;
+  const debtAllocation = calculateLedgerDebtAllocation(transactions as Transaction[]);
+  const immediateEarnings = transactions.reduce((sum: number, tx: any) => {
+    if (tx.is_debt === 1 || tx.type === 'DEBT_PAYMENT') return sum;
+    return sum + (Number(tx.fee) || 0);
   }, 0);
+  const earningsPaid = immediateEarnings + debtAllocation.contractualEarningsPaid + debtAllocation.extraProfitPaid;
+  const netProfit = earningsPaid;
+  const totalDebt = debtAllocation.pendingPrincipal + debtAllocation.pendingEarnings;
 
   const todayStr = getLocalDateKey();
   const todayProfit = transactions.reduce((sum: number, tx: any) => {
@@ -355,7 +439,7 @@ const getDashboardMetrics = (db: any, daysLimit = 30) => {
       };
     });
 
-  // Daily profits & expenses for the last N days
+  // Daily gross-profit figures for the last N days
   const dailyProfits: DailyProfitItem[] = [];
   const loopLimit = Math.max(30, daysLimit);
   for (let i = loopLimit - 1; i >= 0; i--) {
@@ -366,37 +450,33 @@ const getDashboardMetrics = (db: any, daysLimit = 30) => {
 
     const dayTxs = transactions.filter((tx: any) => extractStoredDateKey(tx.created_at) === dateStr);
     const dayGross = dayTxs.reduce((sum: number, tx: any) => sum + (Number(tx.fee) || 0), 0);
-    const dayExp = 0;
 
     dailyProfits.push({
       dateKey: dateStr,
       date: displayLabel,
       profit: dayGross,
       grossProfit: dayGross,
-      expenses: dayExp,
-      netProfit: dayGross - dayExp,
+      netProfit: dayGross,
       txCount: dayTxs.length,
     });
   }
 
   // Earnings Summary (Today, 7D Week, 30D Month)
-  const todayItem = dailyProfits.find(dp => dp.dateKey === todayStr) || { grossProfit: 0, expenses: 0, netProfit: 0, txCount: 0 };
+  const todayItem = dailyProfits.find(dp => dp.dateKey === todayStr) || { grossProfit: 0, netProfit: 0, txCount: 0 };
   const last7 = dailyProfits.slice(-7);
   const weekSummary: EarningsTimeframeSummary = {
     grossProfit: last7.reduce((sum, d) => sum + d.grossProfit, 0),
-    expenses: last7.reduce((sum, d) => sum + d.expenses, 0),
     netProfit: last7.reduce((sum, d) => sum + d.netProfit, 0),
     txCount: last7.reduce((sum, d) => sum + d.txCount, 0),
   };
   const monthSummary: EarningsTimeframeSummary = {
     grossProfit: dailyProfits.slice(-30).reduce((sum, d) => sum + d.grossProfit, 0),
-    expenses: dailyProfits.slice(-30).reduce((sum, d) => sum + d.expenses, 0),
     netProfit: dailyProfits.slice(-30).reduce((sum, d) => sum + d.netProfit, 0),
     txCount: dailyProfits.slice(-30).reduce((sum, d) => sum + d.txCount, 0),
   };
 
   const earningsSummary: EarningsSummary = {
-    today: { grossProfit: todayItem.grossProfit, expenses: todayItem.expenses, netProfit: todayItem.netProfit, txCount: todayItem.txCount },
+    today: { grossProfit: todayItem.grossProfit, netProfit: todayItem.netProfit, txCount: todayItem.txCount },
     week: weekSummary,
     month: monthSummary,
   };
@@ -497,9 +577,12 @@ const getDashboardMetrics = (db: any, daysLimit = 30) => {
 
   return {
     grossProfit,
-    totalExpenses,
     netProfit,
     totalDebt,
+    earningsPaid,
+    pendingEarnings: debtAllocation.pendingEarnings,
+    principalPaid: debtAllocation.principalPaid,
+    pendingPrincipal: debtAllocation.pendingPrincipal,
     todayProfit,
     wallets,
     recentTransactions,
@@ -619,15 +702,6 @@ function useWebDbQueries() {
     });
   };
 
-  const useExpenses = () => {
-    return useQuery({
-      queryKey: ['expenses'],
-      queryFn: async () => {
-        return [];
-      }
-    });
-  };
-
   const useWallets = () => {
     return useQuery({
       queryKey: ['wallets'],
@@ -656,6 +730,24 @@ function useWebDbQueries() {
             };
           });
       }
+    });
+  };
+
+  const useTransactionsForDate = (dateKey: string) => {
+    return useQuery({
+      queryKey: ['transactions', 'date', dateKey],
+      enabled: Boolean(dateKey),
+      queryFn: async () => {
+        const db = getWebDb();
+        const customerNamesById = new Map((db.customers || []).map((customer: any) => [customer.id, customer.name]));
+        return [...(db.transactions || [])]
+          .filter((transaction: Transaction) => extractStoredDateKey(transaction.created_at) === dateKey)
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+          .map((transaction: Transaction) => ({
+            ...transaction,
+            customer_name: customerNamesById.get(transaction.customer_id) || null,
+          }));
+      },
     });
   };
 
@@ -888,20 +980,6 @@ function useWebDbQueries() {
     });
   };
 
-  const useAddExpense = () => {
-    return useMutation({
-      mutationFn: async () => {},
-      onSuccess: () => {}
-    });
-  };
-
-  const useDeleteExpense = () => {
-    return useMutation({
-      mutationFn: async () => {},
-      onSuccess: () => {}
-    });
-  };
-
   const useUpdateWalletBalance = () => {
     return useMutation({
       mutationFn: async ({ channel, balance }: { channel: string; balance: number }) => {
@@ -1016,9 +1094,6 @@ function useWebDbQueries() {
             const cust = (db.customers || []).find((c: any) => c.id === tx.customer_id);
             return { ...tx, customer_name: cust ? cust.name : '' };
           });
-        const expenses = [...(db.expenses || [])]
-          .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
         // Build debtor summary
         const debtorsMap: Record<number, any> = {};
         for (const tx of (db.transactions || [])) {
@@ -1048,7 +1123,7 @@ function useWebDbQueries() {
           .filter((d: any) => d.balance > 0)
           .sort((a: any, b: any) => b.balance - a.balance);
 
-        return { transactions, expenses, debtors };
+        return { transactions, debtors };
       },
       enabled: false,
     });
@@ -1065,7 +1140,6 @@ function useWebDbQueries() {
           exported_at: new Date().toISOString(),
           customers: [...(db.customers || [])],
           transactions: [...(db.transactions || [])],
-          expenses: [],
           wallets: Object.entries(db.wallets || {}).map(([channel, balance]) => ({
             channel,
             balance: Number(balance) || 0,
@@ -1091,7 +1165,6 @@ function useWebDbQueries() {
         const restoredDb = {
           customers: backup.customers || [],
           transactions: backup.transactions || [],
-          expenses: [],
           wallets: { ...defaultWebDb.wallets, ...wallets },
           settings: { ...defaultWebDb.settings, ...(backup.settings || {}) },
         };
@@ -1107,9 +1180,9 @@ function useWebDbQueries() {
     useDashboardData,
     useCustomers,
     useDebtors,
-    useExpenses,
     useWallets,
     useTransactions,
+    useTransactionsForDate,
     useExportData,
     useBackupData,
     useRestoreBackup,
@@ -1120,8 +1193,6 @@ function useWebDbQueries() {
     useUpdateTransaction,
     useDeleteTransaction,
     useSettleDebt,
-    useAddExpense,
-    useDeleteExpense,
     useUpdateWalletBalance,
     useAddWallet,
     useDeleteWallet,
@@ -1146,31 +1217,21 @@ export function useDbQueries() {
     return useQuery({
       queryKey: ['dashboard', daysLimit],
       queryFn: async () => {
-        // Gross Profit (Sum of fees)
-        const profitResult = await db.getFirstAsync<{ gross_profit: number }>(
-          "SELECT COALESCE(SUM(fee), 0) as gross_profit FROM transactions"
-        );
-        const grossProfit = profitResult?.gross_profit ?? 0;
-
-        // Total Expenses
-        const totalExpenses = 0;
-        const netProfit = grossProfit;
-
-        // Total Debtors Outstanding
-        const debtResult = await db.getFirstAsync<{ total_debt: number }>(`
-          SELECT 
-            COALESCE(SUM(CASE WHEN t.is_debt = 1 THEN (t.amount + (CASE WHEN t.deduct_fee = 1 THEN 0 ELSE t.fee END)) ELSE 0 END), 0) - 
-            COALESCE(SUM(CASE WHEN t.type = 'DEBT_PAYMENT' THEN t.amount ELSE 0 END), 0) AS total_debt
-          FROM transactions t
-        `);
-        const totalDebt = debtResult?.total_debt ?? 0;
-
         const allTransactions = await db.getAllAsync<Transaction>(`
           SELECT t.*, c.name as customer_name
           FROM transactions t
           LEFT JOIN customers c ON t.customer_id = c.id
           ORDER BY t.created_at DESC
         `);
+        const grossProfit = allTransactions.reduce((sum, tx) => sum + (Number(tx.fee) || 0), 0);
+        const debtAllocation = calculateLedgerDebtAllocation(allTransactions);
+        const immediateEarnings = allTransactions.reduce((sum, tx) => {
+          if (tx.is_debt === 1 || tx.type === 'DEBT_PAYMENT') return sum;
+          return sum + (Number(tx.fee) || 0);
+        }, 0);
+        const earningsPaid = immediateEarnings + debtAllocation.contractualEarningsPaid + debtAllocation.extraProfitPaid;
+        const netProfit = earningsPaid;
+        const totalDebt = debtAllocation.pendingPrincipal + debtAllocation.pendingEarnings;
 
         const todayStr = getLocalDateKey();
         const todayProfit = allTransactions.reduce((sum, tx) => {
@@ -1203,7 +1264,7 @@ export function useDbQueries() {
           return sum;
         }, 0);
 
-        // Daily profits & expenses for the last N days
+        // Daily gross-profit figures for the last N days
         const dailyProfits: DailyProfitItem[] = [];
         const loopLimit = Math.max(30, daysLimit);
         for (let i = loopLimit - 1; i >= 0; i--) {
@@ -1214,37 +1275,33 @@ export function useDbQueries() {
 
           const dayTxs = allTransactions.filter((tx) => extractStoredDateKey(tx.created_at) === dateStr);
           const dayGross = dayTxs.reduce((sum, tx) => sum + (Number(tx.fee) || 0), 0);
-          const dayExp = 0;
 
           dailyProfits.push({
             dateKey: dateStr,
             date: displayLabel,
             profit: dayGross,
             grossProfit: dayGross,
-            expenses: dayExp,
-            netProfit: dayGross - dayExp,
+            netProfit: dayGross,
             txCount: dayTxs.length,
           });
         }
 
         // Earnings Summary
-        const todayItem = dailyProfits.find(dp => dp.dateKey === todayStr) || { grossProfit: 0, expenses: 0, netProfit: 0, txCount: 0 };
+        const todayItem = dailyProfits.find(dp => dp.dateKey === todayStr) || { grossProfit: 0, netProfit: 0, txCount: 0 };
         const last7 = dailyProfits.slice(-7);
         const weekSummary: EarningsTimeframeSummary = {
           grossProfit: last7.reduce((sum, d) => sum + d.grossProfit, 0),
-          expenses: last7.reduce((sum, d) => sum + d.expenses, 0),
           netProfit: last7.reduce((sum, d) => sum + d.netProfit, 0),
           txCount: last7.reduce((sum, d) => sum + d.txCount, 0),
         };
         const monthSummary: EarningsTimeframeSummary = {
           grossProfit: dailyProfits.slice(-30).reduce((sum, d) => sum + d.grossProfit, 0),
-          expenses: dailyProfits.slice(-30).reduce((sum, d) => sum + d.expenses, 0),
           netProfit: dailyProfits.slice(-30).reduce((sum, d) => sum + d.netProfit, 0),
           txCount: dailyProfits.slice(-30).reduce((sum, d) => sum + d.txCount, 0),
         };
 
         const earningsSummary: EarningsSummary = {
-          today: { grossProfit: todayItem.grossProfit, expenses: todayItem.expenses, netProfit: todayItem.netProfit, txCount: todayItem.txCount },
+          today: { grossProfit: todayItem.grossProfit, netProfit: todayItem.netProfit, txCount: todayItem.txCount },
           week: weekSummary,
           month: monthSummary,
         };
@@ -1320,9 +1377,12 @@ export function useDbQueries() {
 
         return {
           grossProfit,
-          totalExpenses,
           netProfit,
           totalDebt,
+          earningsPaid,
+          pendingEarnings: debtAllocation.pendingEarnings,
+          principalPaid: debtAllocation.principalPaid,
+          pendingPrincipal: debtAllocation.pendingPrincipal,
           todayProfit,
           wallets,
           recentTransactions,
@@ -1411,16 +1471,6 @@ export function useDbQueries() {
     });
   };
 
-  // 4. Expenses List Query
-  const useExpenses = () => {
-    return useQuery({
-      queryKey: ['expenses'],
-      queryFn: async () => {
-        return [];
-      },
-    });
-  };
-
   // 5. Digital Wallets Query
   const useWallets = () => {
     return useQuery({
@@ -1444,6 +1494,26 @@ export function useDbQueries() {
           LEFT JOIN customers c ON t.customer_id = c.id
           ORDER BY t.created_at DESC
         `);
+      },
+    });
+  };
+
+  const useTransactionsForDate = (dateKey: string) => {
+    return useQuery({
+      queryKey: ['transactions', 'date', dateKey],
+      enabled: Boolean(dateKey),
+      queryFn: async () => {
+        const rangeStart = new Date(`${dateKey}T00:00:00`).toISOString();
+        const rangeEndDate = new Date(`${dateKey}T00:00:00`);
+        rangeEndDate.setDate(rangeEndDate.getDate() + 1);
+        const rangeEnd = rangeEndDate.toISOString();
+        return await db.getAllAsync<Transaction>(`
+          SELECT t.*, c.name as customer_name
+          FROM transactions t
+          LEFT JOIN customers c ON t.customer_id = c.id
+          WHERE t.created_at >= ? AND t.created_at < ?
+          ORDER BY t.created_at DESC
+        `, [rangeStart, rangeEnd]);
       },
     });
   };
@@ -1648,22 +1718,6 @@ export function useDbQueries() {
     });
   };
 
-  // Add Expense Mutation
-  const useAddExpense = () => {
-    return useMutation({
-      mutationFn: async () => {},
-      onSuccess: () => {},
-    });
-  };
-
-  // Delete Expense Mutation
-  const useDeleteExpense = () => {
-    return useMutation({
-      mutationFn: async () => {},
-      onSuccess: () => {},
-    });
-  };
-
   // Update Wallet Float Mutation
   const useUpdateWalletBalance = () => {
     return useMutation({
@@ -1745,8 +1799,6 @@ export function useDbQueries() {
           DROP TRIGGER IF EXISTS tr_transaction_insert;
           DROP TRIGGER IF EXISTS tr_transaction_delete;
           DROP TRIGGER IF EXISTS tr_transaction_update;
-          DROP TRIGGER IF EXISTS tr_expense_insert;
-          DROP TRIGGER IF EXISTS tr_expense_delete;
           DROP TRIGGER IF EXISTS tr_wallet_balance_guard;
         `);
 
@@ -1801,7 +1853,7 @@ export function useDbQueries() {
     });
   };
 
-  // Export Data Query (all transactions + expenses + debtors for CSV)
+  // Export Data Query (all transactions and debtors for CSV)
   const useExportData = () => {
     return useQuery({
       queryKey: ['export_data'],
@@ -1817,8 +1869,6 @@ export function useDbQueries() {
           ORDER BY t.created_at DESC
         `);
         const transactions = rows as (Transaction & { customer_name?: string | null })[];
-        const expenses: Expense[] = [];
-
         // Debtor summary for export using FIFO debt settlement
         const customers = await db.getAllAsync<Customer>("SELECT * FROM customers ORDER BY name ASC");
         const allTx = await db.getAllAsync<Transaction>(
@@ -1862,7 +1912,7 @@ export function useDbQueries() {
         }
         debtors.sort((a, b) => b.balance - a.balance);
 
-        return { transactions, expenses, debtors };
+        return { transactions, debtors };
       },
       enabled: false,
     });
@@ -1878,7 +1928,6 @@ export function useDbQueries() {
         const transactions = await db.getAllAsync<Transaction>(
           "SELECT id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, created_at FROM transactions ORDER BY id ASC"
         );
-        const expenses: Expense[] = [];
         const wallets = await db.getAllAsync<Wallet>(
           "SELECT channel, balance FROM wallets ORDER BY channel ASC"
         );
@@ -1895,7 +1944,6 @@ export function useDbQueries() {
           exported_at: new Date().toISOString(),
           customers,
           transactions,
-          expenses,
           wallets,
           settings,
         };
@@ -1910,7 +1958,7 @@ export function useDbQueries() {
         if (backup.schema !== 'trackapp.backup' || backup.version !== 1) {
           throw new Error('This is not a supported TrackApp backup file.');
         }
-        if (!Array.isArray(backup.customers) || !Array.isArray(backup.transactions) || !Array.isArray(backup.expenses) || !Array.isArray(backup.wallets)) {
+        if (!Array.isArray(backup.customers) || !Array.isArray(backup.transactions) || !Array.isArray(backup.wallets)) {
           throw new Error('Backup file is missing required ledger data.');
         }
 
@@ -1918,15 +1966,12 @@ export function useDbQueries() {
           DROP TRIGGER IF EXISTS tr_transaction_insert;
           DROP TRIGGER IF EXISTS tr_transaction_delete;
           DROP TRIGGER IF EXISTS tr_transaction_update;
-          DROP TRIGGER IF EXISTS tr_expense_insert;
-          DROP TRIGGER IF EXISTS tr_expense_delete;
           DROP TRIGGER IF EXISTS tr_wallet_balance_guard;
         `);
 
         try {
           await db.withTransactionAsync(async () => {
             await db.execAsync("DELETE FROM transactions");
-            await db.execAsync("DELETE FROM expenses");
             await db.execAsync("DELETE FROM customers");
             await db.execAsync("DELETE FROM wallets");
             await db.execAsync("DELETE FROM settings");
@@ -2000,9 +2045,9 @@ export function useDbQueries() {
     useDashboardData,
     useCustomers,
     useDebtors,
-    useExpenses,
     useWallets,
     useTransactions,
+    useTransactionsForDate,
     useExportData,
     useBackupData,
     useRestoreBackup,
@@ -2013,8 +2058,6 @@ export function useDbQueries() {
     useUpdateTransaction,
     useDeleteTransaction,
     useSettleDebt,
-    useAddExpense,
-    useDeleteExpense,
     useUpdateWalletBalance,
     useResetDatabase,
     useSettings,

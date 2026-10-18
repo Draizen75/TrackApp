@@ -1,31 +1,31 @@
-import React, { useState, useMemo } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Alert, Modal, TextInput } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useDbQueries, Transaction, DailyProfitItem } from '@/hooks/useDbQueries';
-import { 
-  TrendingUp, 
-  Users, 
-  Wallet, 
-  Trash2, 
-  Pencil,
-  ArrowUpRight,
-  ArrowDownLeft,
-  Smartphone,
-  Tv,
-  Coins,
-  RefreshCw,
-  ChevronRight,
-  Calendar,
-  Clock,
-  BarChart2,
-  SlidersHorizontal,
-  ChevronDown,
-  Check,
-  X,
-} from 'lucide-react-native';
+import { DailyProfitItem, Transaction, useDbQueries } from '@/hooks/useDbQueries';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  BarChart2,
+  Calendar,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Clock,
+  Coins,
+  Pencil,
+  RefreshCw,
+  SlidersHorizontal,
+  Smartphone,
+  Trash2,
+  TrendingUp,
+  Tv,
+  Users,
+  Wallet,
+  X,
+} from 'lucide-react-native';
+import { useMemo, useState } from 'react';
+import { Alert, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 // ─── Warm Architectural Design Tokens ─────────────────────────────────────────
 const C = {
@@ -51,10 +51,10 @@ export default function DashboardScreen() {
 
   // Interactive Chart & Earnings Summary State
   const [timeframe, setTimeframe] = useState<'7d' | '14d' | '30d' | 'custom'>('7d');
-  const [customDays, setCustomDays] = useState<number>(45);
+  const [customDays, setCustomDays] = useState<number>(7);
   const activeDaysCount = timeframe === '7d' ? 7 : timeframe === '14d' ? 14 : timeframe === '30d' ? 30 : customDays;
 
-  const { useDashboardData, useDeleteTransaction } = useDbQueries();
+  const { useDashboardData, useDeleteTransaction, useTransactionsForDate } = useDbQueries();
   const { data, isLoading, refetch } = useDashboardData(activeDaysCount);
   const deleteTxMutation = useDeleteTransaction();
 
@@ -84,17 +84,18 @@ export default function DashboardScreen() {
     return activeDailyProfits[activeDailyProfits.length - 1];
   }, [activeDailyProfits, selectedDayKey]);
 
+  const { data: selectedDayTransactions = [], isLoading: isSelectedDayTransactionsLoading } = useTransactionsForDate(selectedDayInfo?.dateKey || '');
+
   // Custom N-Day Summary Calculation (BEFORE ANY CONDITIONAL RETURNS)
   const customNDaySummary = useMemo(() => {
-    const list = (data?.dailyProfits || []).slice(-Math.max(customDays, 1));
+    const list = (data?.dailyProfits || []).slice(-Math.max(activeDaysCount, 1));
     const grossProfit = list.reduce((sum, d) => sum + (d.grossProfit || d.profit || 0), 0);
     return {
       grossProfit,
-      expenses: 0,
       netProfit: grossProfit,
       txCount: list.reduce((sum, d) => sum + (d.txCount || 0), 0),
     };
-  }, [data?.dailyProfits, customDays]);
+  }, [data?.dailyProfits, activeDaysCount]);
 
   const handleRefresh = async () => {
     if (process.env.EXPO_OS !== 'web') {
@@ -109,8 +110,8 @@ export default function DashboardScreen() {
       `Are you sure you want to delete this transaction of ₱${tx.amount.toFixed(2)}? This will revert the wallet balances.`,
       [
         { text: "Cancel", style: "cancel" },
-        { 
-          text: "Delete", 
+        {
+          text: "Delete",
           style: "destructive",
           onPress: async () => {
             if (process.env.EXPO_OS !== 'web') {
@@ -148,7 +149,7 @@ export default function DashboardScreen() {
 
   const getWalletTheme = (channel: string) => {
     const upper = channel.toUpperCase();
-    
+
     // Core default themes
     const defaultThemes: Record<string, { colors: string[]; label: string; accentColor: string; segmentColor: string }> = {
       GCASH: { colors: ['#1a2640', '#111827'], label: 'GCash', accentColor: '#6fa3d8', segmentColor: '#4a7fa5' },
@@ -250,39 +251,41 @@ export default function DashboardScreen() {
           }}
         >
           <Text style={{ color: C.text3, fontSize: 10, letterSpacing: 2.5, textTransform: 'uppercase', fontWeight: '700', textAlign: 'center', marginBottom: 4 }}>
-            Total Earnings
+            Earnings Paid
           </Text>
-          <Text style={{ 
-            fontSize: 44, 
-            fontWeight: '900', 
-            textAlign: 'center', 
+          <Text style={{
+            fontSize: 44,
+            fontWeight: '900',
+            textAlign: 'center',
             letterSpacing: -1,
-            color: data.netProfit >= 0 ? C.accent : C.danger,
+            color: data.earningsPaid >= 0 ? C.accent : C.danger,
             marginBottom: 2,
           }}>
             ₱{data.netProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </Text>
           <Text style={{ color: C.text3, fontSize: 11, textAlign: 'center', marginBottom: 20 }}>
-            Accumulated transaction service fees
+            Fees and interest already collected
           </Text>
 
           {/* Divider */}
           <View style={{ height: 1, backgroundColor: C.border, marginBottom: 20 }} />
 
-          {/* Stat Row */}
-          <View style={{ flexDirection: 'row' }}>
+          {/* Ledger status */}
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
             {[
-              { icon: <TrendingUp size={13} color={C.success} />, label: 'Gross Fees', value: data.grossProfit, color: C.text1 },
-              { icon: <Users size={13} color={C.warning} />, label: 'Lends/Debt', value: data.totalDebt, color: C.warning },
+              { icon: <TrendingUp size={13} color={C.text2} />, label: 'Gross Fees', value: data.grossProfit, color: C.text1 },
+              { icon: <Coins size={13} color={C.warning} />, label: 'Pending Earnings', value: data.pendingEarnings, color: C.warning },
+              { icon: <Check size={13} color={C.success} />, label: 'Principal Paid', value: data.principalPaid, color: C.success },
+              { icon: <Users size={13} color={C.danger} />, label: 'Principal Pending', value: data.pendingPrincipal, color: C.danger },
             ].map((item, i) => (
-              <View key={i} style={{ flex: 1, alignItems: 'center', borderRightWidth: i < 1 ? 1 : 0, borderColor: C.border }}>
+              <View key={i} style={{ width: '47%', alignItems: 'center' }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 }}>
                   {item.icon}
                   <Text style={{ color: C.text3, fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: '700' }}>
                     {item.label}
                   </Text>
                 </View>
-                <Text style={{ color: item.color, fontSize: 15, fontWeight: '800' }}>
+                <Text style={{ color: item.color, fontSize: 15, fontWeight: '800', fontVariant: ['tabular-nums'] }}>
                   ₱{item.value.toLocaleString('en-US', { maximumFractionDigits: 0 })}
                 </Text>
               </View>
@@ -457,7 +460,7 @@ export default function DashboardScreen() {
                     if (process.env.EXPO_OS !== 'web') {
                       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     }
-                    setCustomInputText(customDays.toString());
+                    setCustomInputText(activeDaysCount.toString());
                     setIsCustomDaysModalOpen(true);
                   }}
                   style={{
@@ -473,7 +476,7 @@ export default function DashboardScreen() {
                   }}
                 >
                   <Text style={{ fontSize: 11, fontWeight: '800', color: C.accent }}>
-                    {customDays} Days
+                    {activeDaysCount} Days
                   </Text>
                   <ChevronDown size={13} color={C.accent} />
                 </TouchableOpacity>
@@ -485,7 +488,7 @@ export default function DashboardScreen() {
                     ₱{customNDaySummary.netProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </Text>
                   <Text style={{ color: C.text3, fontSize: 10, marginTop: 1 }}>
-                    Total Net Profit in last {customDays} days
+                    Total Net Profit in last {activeDaysCount} days
                   </Text>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
@@ -538,7 +541,7 @@ export default function DashboardScreen() {
           </View>
 
           <Text style={{ color: C.text3, fontSize: 10, marginBottom: 14 }}>
-            💡 Tap any day bar below to view daily fees, expenses, and net profit.
+            💡 Tap any day bar below to view daily fees and net profit.
           </Text>
 
           {/* Scrollable Bar Chart */}
@@ -618,6 +621,39 @@ export default function DashboardScreen() {
                     {selectedDayInfo.txCount || 0} Logs
                   </Text>
                 </View>
+              </View>
+
+              <View style={{ marginTop: 14, borderTopWidth: 1, borderTopColor: C.border, paddingTop: 12 }}>
+                <Text style={{ color: C.text2, fontSize: 10, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: '700', marginBottom: 8 }}>
+                  All transactions for this day
+                </Text>
+                {isSelectedDayTransactionsLoading ? (
+                  <Text style={{ color: C.text3, fontSize: 12, paddingVertical: 8 }}>Loading transactions...</Text>
+                ) : selectedDayTransactions.length === 0 ? (
+                  <Text style={{ color: C.text3, fontSize: 12, paddingVertical: 8 }}>No transactions recorded for this day.</Text>
+                ) : (
+                  selectedDayTransactions.map((transaction) => {
+                    const typeDetails = getTxTypeBadge(transaction.type);
+                    return (
+                      <View key={transaction.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
+                        <View style={{ width: 30, height: 30, borderRadius: 9, backgroundColor: typeDetails.bg, alignItems: 'center', justifyContent: 'center' }}>
+                          {typeDetails.icon}
+                        </View>
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <Text style={{ color: C.text1, fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
+                            {typeDetails.label}{transaction.customer_name ? ` · ${transaction.customer_name}` : ''}
+                          </Text>
+                          <Text style={{ color: C.text3, fontSize: 10, marginTop: 2 }} numberOfLines={1}>
+                            {transaction.channel}{transaction.fee > 0 ? ` · Fee ${transaction.fee.toFixed(2)}` : ''}
+                          </Text>
+                        </View>
+                        <Text style={{ color: typeDetails.text, fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] }}>
+                          ₱{transaction.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </Text>
+                      </View>
+                    );
+                  })
+                )}
               </View>
             </View>
           )}
@@ -776,10 +812,13 @@ export default function DashboardScreen() {
                       }
                       if (opt.days === 7) {
                         setTimeframe('7d');
+                        setCustomDays(7);
                       } else if (opt.days === 14) {
                         setTimeframe('14d');
+                        setCustomDays(14);
                       } else if (opt.days === 30) {
                         setTimeframe('30d');
+                        setCustomDays(30);
                       } else {
                         setTimeframe('custom');
                         setCustomDays(opt.days);
@@ -845,9 +884,16 @@ export default function DashboardScreen() {
                       if (process.env.EXPO_OS !== 'web') {
                         await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                       }
-                      if (num === 7) setTimeframe('7d');
-                      else if (num === 14) setTimeframe('14d');
-                      else if (num === 30) setTimeframe('30d');
+                      if (num === 7) {
+                        setTimeframe('7d');
+                        setCustomDays(7);
+                      } else if (num === 14) {
+                        setTimeframe('14d');
+                        setCustomDays(14);
+                      } else if (num === 30) {
+                        setTimeframe('30d');
+                        setCustomDays(30);
+                      }
                       else {
                         setTimeframe('custom');
                         setCustomDays(num);
