@@ -108,13 +108,14 @@ export interface BackupData {
 }
 
 const transactionTypes = new Set<Transaction['type']>(['CASH_IN', 'CASH_OUT', 'E_LOAD', 'TV_LOAD', 'DEBT_PAYMENT']);
+const requiredWalletChannels = ['GCASH', 'MAYA', 'MAYA_BUSINESS', 'MARIBANK', 'PHYSICAL_CASH'];
 
 export const roundCurrency = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
 export function assertValidTransactionInput(tx: {
   type: Transaction['type']; amount: number; fee: number; channel: string;
   customer_id: number | null; is_debt: boolean; deduct_fee?: boolean;
-}, options: { allowOrphanDebtPayment?: boolean } = {}) {
+}, options: { allowOrphanDebtPayment?: boolean; allowHistoricalCreditWithoutCustomer?: boolean } = {}) {
   if (!transactionTypes.has(tx.type) || !Number.isFinite(tx.amount) || !Number.isFinite(tx.fee)) {
     throw new Error('Transaction contains an invalid type or amount.');
   }
@@ -124,7 +125,7 @@ export function assertValidTransactionInput(tx: {
   if (tx.deduct_fee && tx.fee > tx.amount + 0.001) {
     throw new Error('A deducted fee cannot be greater than the transaction amount.');
   }
-  if (tx.is_debt && !tx.customer_id) {
+  if (tx.is_debt && !tx.customer_id && !options.allowHistoricalCreditWithoutCustomer) {
     throw new Error('Debtor name is required for credit transactions.');
   }
   if (tx.type === 'DEBT_PAYMENT') {
@@ -148,6 +149,9 @@ export function assertValidBackup(backup: BackupData) {
     !Array.isArray(backup.customers) || !Array.isArray(backup.transactions) || !Array.isArray(backup.wallets)) {
     throw new Error('Backup file is missing required ledger data.');
   }
+  if (!backup.exported_at || !Number.isFinite(new Date(backup.exported_at).getTime())) {
+    throw new Error('Backup contains an invalid export date.');
+  }
   const customerIds = new Set<number>();
   for (const customer of backup.customers) {
     if (!Number.isSafeInteger(customer.id) || customer.id <= 0 || !String(customer.name || '').trim() || customerIds.has(customer.id)) {
@@ -163,6 +167,9 @@ export function assertValidBackup(backup: BackupData) {
     }
     walletChannels.add(channel);
   }
+  if (requiredWalletChannels.some((channel) => !walletChannels.has(channel))) {
+    throw new Error('Backup is missing one or more required wallets.');
+  }
   const transactionIds = new Set<number>();
   for (const tx of backup.transactions) {
     if (!Number.isSafeInteger(tx.id) || tx.id <= 0 || transactionIds.has(tx.id) ||
@@ -170,42 +177,37 @@ export function assertValidBackup(backup: BackupData) {
       (tx.customer_id != null && !customerIds.has(Number(tx.customer_id)))) {
       throw new Error('Backup contains an invalid transaction reference.');
     }
+    if (tx.is_debt !== 0 && tx.is_debt !== 1 && typeof tx.is_debt !== 'boolean') {
+      throw new Error('Backup contains an invalid transaction flag.');
+    }
+    if (tx.deduct_fee !== 0 && tx.deduct_fee !== 1 && typeof tx.deduct_fee !== 'boolean') {
+      throw new Error('Backup contains an invalid transaction flag.');
+    }
     assertValidTransactionInput({
       type: tx.type, amount: Number(tx.amount), fee: Number(tx.fee), channel: String(tx.channel || ''),
       customer_id: tx.customer_id == null ? null : Number(tx.customer_id), is_debt: Number(tx.is_debt) === 1,
       deduct_fee: Number(tx.deduct_fee) === 1,
-    });
+    }, { allowHistoricalCreditWithoutCustomer: true, allowOrphanDebtPayment: true });
     transactionIds.add(tx.id);
   }
-}
-
-/** Repairs only legacy payments whose debtor can be inferred uniquely; ambiguous data is rejected. */
-export function repairBackupDebtPaymentCustomers(backup: BackupData): BackupData {
-  if (!backup || !Array.isArray(backup.transactions)) return backup;
-  const transactions = backup.transactions.map((tx) => ({ ...tx }));
   const balances = new Map<number, number>();
-
-  for (const tx of [...transactions].sort(
+  for (const tx of [...backup.transactions].sort(
     (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime() || a.id - b.id
   )) {
-    if (tx.type === 'DEBT_PAYMENT' && tx.customer_id == null) {
-      const candidates = Array.from(balances.entries())
-        .filter(([, balance]) => balance >= Number(tx.amount) - 0.01)
-        .map(([customerId]) => customerId);
-      if (candidates.length !== 1) {
-        throw new Error('Backup contains a debt payment that cannot be linked uniquely to a debtor.');
+    const timestamp = new Date(tx.created_at).getTime();
+    if (!Number.isFinite(timestamp)) throw new Error('Backup contains an invalid transaction date.');
+    const customerId = tx.customer_id == null ? null : Number(tx.customer_id);
+    if (Number(tx.is_debt) === 1 && customerId != null) {
+      const debt = Number(tx.amount) + (Number(tx.deduct_fee) === 1 ? 0 : Number(tx.fee));
+      balances.set(customerId, (balances.get(customerId) || 0) + debt);
+    } else if (tx.type === 'DEBT_PAYMENT' && customerId != null) {
+      const outstanding = balances.get(customerId) || 0;
+      if (Number(tx.amount) - outstanding > 0.01) {
+        throw new Error('Backup contains a debt payment that exceeds the outstanding balance.');
       }
-      tx.customer_id = candidates[0];
-    }
-    if (tx.customer_id != null) {
-      const debtDelta = Number(tx.is_debt) === 1
-        ? Number(tx.amount) + (Number(tx.deduct_fee) === 1 ? 0 : Number(tx.fee))
-        : tx.type === 'DEBT_PAYMENT' ? -Number(tx.amount) : 0;
-      balances.set(tx.customer_id, (balances.get(tx.customer_id) || 0) + debtDelta);
+      balances.set(customerId, outstanding - Number(tx.amount));
     }
   }
-
-  return { ...backup, transactions };
 }
 
 /**
@@ -412,7 +414,6 @@ const getWebDb = () => {
       settings: { ...defaultWebDb.settings, ...(parsed.settings || {}) },
     };
     repairBrokenWebDebtPayments(hydratedDb);
-    normalizeWebCurrencyValues(hydratedDb);
     return hydratedDb;
   } catch {
     return defaultWebDb;
@@ -503,21 +504,6 @@ const repairBrokenWebDebtPayments = (db: any) => {
   } else if (typeof window !== 'undefined') {
     localStorage.setItem('counter_db', JSON.stringify(db));
   }
-};
-
-const CURRENCY_ROUNDING_REPAIR_KEY = 'currency_rounding_repair_v1';
-
-const normalizeWebCurrencyValues = (db: any) => {
-  if (db.settings?.[CURRENCY_ROUNDING_REPAIR_KEY] === 'done') return;
-  for (const tx of db.transactions || []) {
-    tx.amount = roundCurrency(Number(tx.amount));
-    tx.fee = roundCurrency(Number(tx.fee));
-  }
-  for (const channel of Object.keys(db.wallets || {})) {
-    db.wallets[channel] = roundCurrency(Number(db.wallets[channel]));
-  }
-  db.settings = { ...(db.settings || {}), [CURRENCY_ROUNDING_REPAIR_KEY]: 'done' };
-  saveWebDb(db);
 };
 
 const getDashboardMetrics = (db: any, daysLimit = 30) => {
@@ -738,7 +724,7 @@ const applyTxToWallets = (wallets: any, tx: any, revert = false) => {
   }
 };
 
-function useWebDbQueries() {
+export function useWebDbQueries() {
   const queryClient = useQueryClient();
 
   const useDashboardData = (daysLimit = 30) => {
@@ -902,6 +888,9 @@ function useWebDbQueries() {
           const outstanding = getDebtBalanceForCustomer(db.transactions || [], id);
           if (Math.abs(outstanding) > 0.01) {
             throw new Error('Cannot delete a customer with an outstanding debt. Settle the balance first.');
+          }
+          for (const transaction of db.transactions || []) {
+            if (transaction.customer_id === id) transaction.customer_id = null;
           }
           db.customers.splice(idx, 1);
           saveWebDb(db);
@@ -1276,7 +1265,6 @@ function useWebDbQueries() {
   const useRestoreBackup = () => {
     return useMutation({
       mutationFn: async (backup: BackupData) => {
-        backup = repairBackupDebtPaymentCustomers(backup);
         assertValidBackup(backup);
         const wallets = backup.wallets.reduce<Record<string, number>>((acc, wallet) => {
           const channel = String(wallet.channel || '').trim();
@@ -2108,7 +2096,6 @@ export function useDbQueries() {
   const useRestoreBackup = () => {
     return useMutation({
       mutationFn: async (backup: BackupData) => {
-        backup = repairBackupDebtPaymentCustomers(backup);
         assertValidBackup(backup);
 
         await db.execAsync(`

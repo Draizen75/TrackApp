@@ -13,7 +13,6 @@ type RepairTransactionRow = {
 
 const DEBT_PAYMENT_REPAIR_KEY = 'debt_payment_customer_repair_v1';
 const DEBT_PAYMENT_FEE_WALLET_REPAIR_KEY = 'debt_payment_fee_wallet_repair_v1';
-const CURRENCY_ROUNDING_REPAIR_KEY = 'currency_rounding_repair_v1';
 
 function getDebtDelta(tx: RepairTransactionRow) {
   if (tx.is_debt === 1) {
@@ -116,25 +115,6 @@ async function repairDebtPaymentFeeWalletCredits(db: SQLite.SQLiteDatabase) {
   );
 }
 
-async function normalizeStoredCurrencyValues(db: SQLite.SQLiteDatabase) {
-  const alreadyNormalized = await db.getFirstAsync<{ value: string }>(
-    'SELECT value FROM settings WHERE key = ?',
-    [CURRENCY_ROUNDING_REPAIR_KEY]
-  );
-  if (alreadyNormalized?.value === 'done') return;
-
-  await db.execAsync(`
-    UPDATE transactions
-    SET amount = ROUND((amount + 0.000000001) * 100) / 100,
-        fee = ROUND((fee + 0.000000001) * 100) / 100;
-    UPDATE wallets SET balance = ROUND((balance + 0.000000001) * 100) / 100;
-  `);
-  await db.runAsync(
-    'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
-    [CURRENCY_ROUNDING_REPAIR_KEY, 'done']
-  );
-}
-
 export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
   // Optimize pragmas for safety, speed, and corruption resistance
   await db.execAsync(`
@@ -208,6 +188,9 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
     DROP TRIGGER IF EXISTS tr_wallet_balance_guard;
   `);
 
+  // Repair deterministically identifiable legacy payments before strict validation is restored.
+  // Ambiguous records are intentionally left unchanged for the health-check flow.
+  await repairBrokenDebtPayments(db);
 
   // Keep direct SQLite writes from bypassing the application validation layer.
   // These triggers apply only to future writes, so they do not rewrite existing ledger data.
@@ -450,9 +433,5 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
     }
   }
 
-  // Normalize legacy floating-point values once after the base schema is complete.
-  await normalizeStoredCurrencyValues(db);
-
   await repairDebtPaymentFeeWalletCredits(db);
-  await repairBrokenDebtPayments(db);
 }
