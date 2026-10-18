@@ -63,7 +63,9 @@ const DELIM = ',';
  */
 function csvCell(value: string | number | null | undefined): string {
   if (value == null) return '';
-  const str = String(value).trim();
+  const normalized = String(value).trim();
+  // Prevent spreadsheet applications from interpreting exported user content as a formula.
+  const str = /^[=+\-@]/.test(normalized) ? `'${normalized}` : normalized;
   if (str === '') return '';
   // Excel requires quoting if the value contains delimiter, quotes, or newlines
   if (str.includes(DELIM) || str.includes('"') || str.includes('\n') || str.includes('\r')) {

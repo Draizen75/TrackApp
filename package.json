@@ -42,9 +42,14 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/jest": "29.5.14",
     "@types/react": "~19.2.2",
+    "@types/sql.js": "^1.4.11",
     "eslint": "^9.0.0",
     "eslint-config-expo": "~56.0.4",
+    "jest": "~29.7.0",
+    "jest-expo": "~56.0.5",
+    "sql.js": "^1.15.0",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -53,7 +58,15 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "test": "jest --runInBand",
+    "test:watch": "jest --watch"
+  },
+  "jest": {
+    "preset": "jest-expo",
+    "testMatch": [
+      "<rootDir>/tests/**/*.test.ts"
+    ]
   },
   "private": true
 }

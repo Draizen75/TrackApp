@@ -107,6 +107,107 @@ export interface BackupData {
   settings: Record<string, string>;
 }
 
+const transactionTypes = new Set<Transaction['type']>(['CASH_IN', 'CASH_OUT', 'E_LOAD', 'TV_LOAD', 'DEBT_PAYMENT']);
+
+export const roundCurrency = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+
+export function assertValidTransactionInput(tx: {
+  type: Transaction['type']; amount: number; fee: number; channel: string;
+  customer_id: number | null; is_debt: boolean; deduct_fee?: boolean;
+}, options: { allowOrphanDebtPayment?: boolean } = {}) {
+  if (!transactionTypes.has(tx.type) || !Number.isFinite(tx.amount) || !Number.isFinite(tx.fee)) {
+    throw new Error('Transaction contains an invalid type or amount.');
+  }
+  if (tx.amount < 0 || tx.fee < 0 || !tx.channel.trim()) {
+    throw new Error('Transaction amount and fee must be non-negative and a wallet is required.');
+  }
+  if (tx.deduct_fee && tx.fee > tx.amount + 0.001) {
+    throw new Error('A deducted fee cannot be greater than the transaction amount.');
+  }
+  if (tx.is_debt && !tx.customer_id) {
+    throw new Error('Debtor name is required for credit transactions.');
+  }
+  if (tx.type === 'DEBT_PAYMENT') {
+    if (tx.is_debt) {
+      throw new Error('Debt payments cannot be recorded as a new debt.');
+    }
+    if ((!options.allowOrphanDebtPayment && !tx.customer_id) || (tx.amount === 0 && tx.fee <= 0)) {
+      throw new Error('Debt payment must include a linked debtor and a principal payment or extra profit/interest.');
+    }
+  } else if (tx.amount <= 0) {
+    throw new Error('Transaction amount must be greater than 0.');
+  }
+}
+
+function getNextWebId(items: { id: number }[]) {
+  return items.reduce((highest, item) => Math.max(highest, Number(item.id) || 0), 0) + 1;
+}
+
+export function assertValidBackup(backup: BackupData) {
+  if (!backup || typeof backup !== 'object' || backup.schema !== 'trackapp.backup' || backup.version !== 1 ||
+    !Array.isArray(backup.customers) || !Array.isArray(backup.transactions) || !Array.isArray(backup.wallets)) {
+    throw new Error('Backup file is missing required ledger data.');
+  }
+  const customerIds = new Set<number>();
+  for (const customer of backup.customers) {
+    if (!Number.isSafeInteger(customer.id) || customer.id <= 0 || !String(customer.name || '').trim() || customerIds.has(customer.id)) {
+      throw new Error('Backup contains an invalid or duplicate customer record.');
+    }
+    customerIds.add(customer.id);
+  }
+  const walletChannels = new Set<string>();
+  for (const wallet of backup.wallets) {
+    const channel = String(wallet.channel || '').trim();
+    if (!channel || walletChannels.has(channel) || !Number.isFinite(Number(wallet.balance)) || Number(wallet.balance) < 0) {
+      throw new Error('Backup contains an invalid or duplicate wallet record.');
+    }
+    walletChannels.add(channel);
+  }
+  const transactionIds = new Set<number>();
+  for (const tx of backup.transactions) {
+    if (!Number.isSafeInteger(tx.id) || tx.id <= 0 || transactionIds.has(tx.id) ||
+      !walletChannels.has(String(tx.channel || '').trim()) ||
+      (tx.customer_id != null && !customerIds.has(Number(tx.customer_id)))) {
+      throw new Error('Backup contains an invalid transaction reference.');
+    }
+    assertValidTransactionInput({
+      type: tx.type, amount: Number(tx.amount), fee: Number(tx.fee), channel: String(tx.channel || ''),
+      customer_id: tx.customer_id == null ? null : Number(tx.customer_id), is_debt: Number(tx.is_debt) === 1,
+      deduct_fee: Number(tx.deduct_fee) === 1,
+    });
+    transactionIds.add(tx.id);
+  }
+}
+
+/** Repairs only legacy payments whose debtor can be inferred uniquely; ambiguous data is rejected. */
+export function repairBackupDebtPaymentCustomers(backup: BackupData): BackupData {
+  if (!backup || !Array.isArray(backup.transactions)) return backup;
+  const transactions = backup.transactions.map((tx) => ({ ...tx }));
+  const balances = new Map<number, number>();
+
+  for (const tx of [...transactions].sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime() || a.id - b.id
+  )) {
+    if (tx.type === 'DEBT_PAYMENT' && tx.customer_id == null) {
+      const candidates = Array.from(balances.entries())
+        .filter(([, balance]) => balance >= Number(tx.amount) - 0.01)
+        .map(([customerId]) => customerId);
+      if (candidates.length !== 1) {
+        throw new Error('Backup contains a debt payment that cannot be linked uniquely to a debtor.');
+      }
+      tx.customer_id = candidates[0];
+    }
+    if (tx.customer_id != null) {
+      const debtDelta = Number(tx.is_debt) === 1
+        ? Number(tx.amount) + (Number(tx.deduct_fee) === 1 ? 0 : Number(tx.fee))
+        : tx.type === 'DEBT_PAYMENT' ? -Number(tx.amount) : 0;
+      balances.set(tx.customer_id, (balances.get(tx.customer_id) || 0) + debtDelta);
+    }
+  }
+
+  return { ...backup, transactions };
+}
+
 /**
  * Calculates the date of the oldest UNPAID debt for a customer using FIFO (First-In, First-Out).
  * 
@@ -311,6 +412,7 @@ const getWebDb = () => {
       settings: { ...defaultWebDb.settings, ...(parsed.settings || {}) },
     };
     repairBrokenWebDebtPayments(hydratedDb);
+    normalizeWebCurrencyValues(hydratedDb);
     return hydratedDb;
   } catch {
     return defaultWebDb;
@@ -401,6 +503,21 @@ const repairBrokenWebDebtPayments = (db: any) => {
   } else if (typeof window !== 'undefined') {
     localStorage.setItem('counter_db', JSON.stringify(db));
   }
+};
+
+const CURRENCY_ROUNDING_REPAIR_KEY = 'currency_rounding_repair_v1';
+
+const normalizeWebCurrencyValues = (db: any) => {
+  if (db.settings?.[CURRENCY_ROUNDING_REPAIR_KEY] === 'done') return;
+  for (const tx of db.transactions || []) {
+    tx.amount = roundCurrency(Number(tx.amount));
+    tx.fee = roundCurrency(Number(tx.fee));
+  }
+  for (const channel of Object.keys(db.wallets || {})) {
+    db.wallets[channel] = roundCurrency(Number(db.wallets[channel]));
+  }
+  db.settings = { ...(db.settings || {}), [CURRENCY_ROUNDING_REPAIR_KEY]: 'done' };
+  saveWebDb(db);
 };
 
 const getDashboardMetrics = (db: any, daysLimit = 30) => {
@@ -758,7 +875,7 @@ function useWebDbQueries() {
         const existing = db.customers.find((c: any) => c.name.toLowerCase() === name.toLowerCase());
         if (existing) return existing.id;
         const newCust = {
-          id: db.customers.length + 1,
+          id: getNextWebId(db.customers),
           name,
           phone: phone || '',
           notes: '',
@@ -782,14 +899,11 @@ function useWebDbQueries() {
         const db = getWebDb();
         const idx = db.customers.findIndex((c: any) => c.id === id);
         if (idx !== -1) {
-          db.customers.splice(idx, 1);
-          if (db.transactions) {
-            db.transactions.forEach((tx: any) => {
-              if (tx.customer_id === id) {
-                tx.customer_id = null;
-              }
-            });
+          const outstanding = getDebtBalanceForCustomer(db.transactions || [], id);
+          if (Math.abs(outstanding) > 0.01) {
+            throw new Error('Cannot delete a customer with an outstanding debt. Settle the balance first.');
           }
+          db.customers.splice(idx, 1);
           saveWebDb(db);
         }
       },
@@ -830,15 +944,23 @@ function useWebDbQueries() {
         deduct_fee: boolean;
       }) => {
         const db = getWebDb();
+        const normalizedTx = { ...tx, amount: roundCurrency(tx.amount), fee: roundCurrency(tx.fee) };
+        assertValidTransactionInput(normalizedTx);
+        if (db.wallets[normalizedTx.channel] === undefined) {
+          throw new Error('Selected wallet does not exist.');
+        }
+        if (normalizedTx.customer_id && !db.customers.some((customer: Customer) => customer.id === normalizedTx.customer_id)) {
+          throw new Error('Selected debtor does not exist.');
+        }
         const newTx = {
-          id: db.transactions.length + 1,
-          type: tx.type,
-          amount: tx.amount,
-          fee: tx.fee,
-          channel: tx.channel,
-          customer_id: tx.customer_id,
-          is_debt: tx.is_debt ? 1 : 0,
-          deduct_fee: tx.deduct_fee ? 1 : 0,
+          id: getNextWebId(db.transactions),
+          type: normalizedTx.type,
+          amount: normalizedTx.amount,
+          fee: normalizedTx.fee,
+          channel: normalizedTx.channel,
+          customer_id: normalizedTx.customer_id,
+          is_debt: normalizedTx.is_debt ? 1 : 0,
+          deduct_fee: normalizedTx.deduct_fee ? 1 : 0,
           created_at: new Date().toISOString()
         };
 
@@ -876,25 +998,19 @@ function useWebDbQueries() {
         const idx = db.transactions.findIndex((t: any) => t.id === tx.id);
         if (idx !== -1) {
           const oldTx = db.transactions[idx];
-          if (tx.is_debt && !tx.customer_id) {
-            throw new Error('Debtor name is required for credit transactions.');
+          const normalizedTx = { ...tx, amount: roundCurrency(tx.amount), fee: roundCurrency(tx.fee) };
+          assertValidTransactionInput(normalizedTx);
+          if (db.wallets[normalizedTx.channel] === undefined) throw new Error('Selected wallet does not exist.');
+          if (normalizedTx.customer_id && !db.customers.some((customer: Customer) => customer.id === normalizedTx.customer_id)) {
+            throw new Error('Selected debtor does not exist.');
           }
-          if (tx.amount < 0 || tx.fee < 0) {
-            throw new Error('Transaction amount and fee must be non-negative.');
-          }
-          if (tx.type === 'DEBT_PAYMENT') {
-            if (!tx.customer_id) {
-              throw new Error('Debt payment must stay linked to a debtor.');
-            }
-            if (tx.amount === 0 && tx.fee <= 0) {
-              throw new Error('Debt payment must include a principal payment or extra profit/interest.');
-            }
-            const outstanding = getDebtBalanceForCustomer(db.transactions, tx.customer_id, tx.id);
-            if (tx.amount - outstanding > 0.01) {
+          if (normalizedTx.type === 'DEBT_PAYMENT') {
+            const customerId = normalizedTx.customer_id;
+            if (!customerId) throw new Error('Debt payment must stay linked to a debtor.');
+            const outstanding = getDebtBalanceForCustomer(db.transactions, customerId, tx.id);
+            if (normalizedTx.amount - outstanding > 0.01) {
               throw new Error(`Debt payment cannot exceed the outstanding balance of ${outstanding.toFixed(2)}.`);
             }
-          } else if (tx.amount <= 0) {
-            throw new Error('Transaction amount must be greater than 0.');
           }
 
           // Dry run balances check
@@ -903,13 +1019,13 @@ function useWebDbQueries() {
 
           const updatedTx = {
             ...oldTx,
-            type: tx.type,
-            amount: tx.amount,
-            fee: tx.fee,
-            channel: tx.channel,
-            customer_id: tx.customer_id,
-            is_debt: tx.is_debt ? 1 : 0,
-            deduct_fee: tx.deduct_fee ? 1 : 0,
+            type: normalizedTx.type,
+            amount: normalizedTx.amount,
+            fee: normalizedTx.fee,
+            channel: normalizedTx.channel,
+            customer_id: normalizedTx.customer_id,
+            is_debt: normalizedTx.is_debt ? 1 : 0,
+            deduct_fee: normalizedTx.deduct_fee ? 1 : 0,
           };
           applyTxToWallets(testWallets, updatedTx, false); // Apply new
 
@@ -953,15 +1069,17 @@ function useWebDbQueries() {
     return useMutation({
       mutationFn: async ({ customer_id, amount, channel, profit }: { customer_id: number; amount: number; channel: string; profit?: number }) => {
         const db = getWebDb();
-        const extraProfit = profit || 0;
-        if (amount < 0 || extraProfit < 0) {
-          throw new Error('Debt payment amount and extra profit/interest must be non-negative.');
-        }
-        if (amount === 0 && extraProfit <= 0) {
-          throw new Error('Debt payment must include a principal payment or extra profit/interest.');
+        amount = roundCurrency(amount);
+        const extraProfit = roundCurrency(profit || 0);
+        assertValidTransactionInput({ type: 'DEBT_PAYMENT', amount, fee: extraProfit, channel, customer_id, is_debt: false });
+        if (db.wallets[channel] === undefined) throw new Error('Selected wallet does not exist.');
+        if (!db.customers.some((customer: Customer) => customer.id === customer_id)) throw new Error('Selected debtor does not exist.');
+        const outstanding = getDebtBalanceForCustomer(db.transactions, customer_id);
+        if (amount - outstanding > 0.01) {
+          throw new Error(`Debt payment cannot exceed the outstanding balance of ${outstanding.toFixed(2)}.`);
         }
         const newTx = {
-          id: db.transactions.length + 1,
+          id: getNextWebId(db.transactions),
           type: 'DEBT_PAYMENT' as const,
           amount,
           fee: extraProfit,
@@ -984,7 +1102,10 @@ function useWebDbQueries() {
     return useMutation({
       mutationFn: async ({ channel, balance }: { channel: string; balance: number }) => {
         const db = getWebDb();
-        db.wallets[channel] = balance;
+        if (!Number.isFinite(balance) || balance < 0 || db.wallets[channel] === undefined) {
+          throw new Error('Wallet balance must be a non-negative amount for an existing wallet.');
+        }
+        db.wallets[channel] = roundCurrency(balance);
         saveWebDb(db);
       },
       onSuccess: () => {
@@ -999,8 +1120,9 @@ function useWebDbQueries() {
         const db = getWebDb();
         const chKey = channel.trim().toUpperCase();
         if (!chKey) throw new Error("Wallet name cannot be blank.");
+        if (!Number.isFinite(balance) || balance < 0) throw new Error('Wallet balance must be a non-negative amount.');
         if (db.wallets[chKey] !== undefined) throw new Error("A wallet with this name already exists.");
-        db.wallets[chKey] = balance;
+        db.wallets[chKey] = roundCurrency(balance);
         saveWebDb(db);
       },
       onSuccess: () => {
@@ -1154,9 +1276,8 @@ function useWebDbQueries() {
   const useRestoreBackup = () => {
     return useMutation({
       mutationFn: async (backup: BackupData) => {
-        if (backup.schema !== 'trackapp.backup' || backup.version !== 1) {
-          throw new Error('This is not a supported TrackApp backup file.');
-        }
+        backup = repairBackupDebtPaymentCustomers(backup);
+        assertValidBackup(backup);
         const wallets = backup.wallets.reduce<Record<string, number>>((acc, wallet) => {
           const channel = String(wallet.channel || '').trim();
           if (channel) acc[channel] = Number(wallet.balance) || 0;
@@ -1541,6 +1662,16 @@ export function useDbQueries() {
   const useDeleteCustomer = () => {
     return useMutation({
       mutationFn: async (id: number) => {
+        const debtResult = await db.getFirstAsync<{ balance: number }>(
+          `SELECT
+            COALESCE(SUM(CASE WHEN is_debt = 1 THEN amount + CASE WHEN deduct_fee = 1 THEN 0 ELSE fee END ELSE 0 END), 0) -
+            COALESCE(SUM(CASE WHEN type = 'DEBT_PAYMENT' THEN amount ELSE 0 END), 0) AS balance
+           FROM transactions WHERE customer_id = ?`,
+          [id]
+        );
+        if (Math.abs(debtResult?.balance ?? 0) > 0.01) {
+          throw new Error('Cannot delete a customer with an outstanding debt. Settle the balance first.');
+        }
         await db.runAsync("DELETE FROM customers WHERE id = ?", [id]);
       },
       onSuccess: () => {
@@ -1588,12 +1719,20 @@ export function useDbQueries() {
         is_debt: boolean;
         deduct_fee: boolean;
       }) => {
+        const normalizedTx = { ...tx, amount: roundCurrency(tx.amount), fee: roundCurrency(tx.fee) };
+        assertValidTransactionInput(normalizedTx);
+        const wallet = await db.getFirstAsync<{ channel: string }>("SELECT channel FROM wallets WHERE channel = ?", [normalizedTx.channel]);
+        if (!wallet) throw new Error('Selected wallet does not exist.');
+        if (normalizedTx.customer_id) {
+          const customer = await db.getFirstAsync<{ id: number }>("SELECT id FROM customers WHERE id = ?", [normalizedTx.customer_id]);
+          if (!customer) throw new Error('Selected debtor does not exist.');
+        }
         const createdAt = new Date().toISOString();
-        const isDebtInt = tx.is_debt ? 1 : 0;
-        const deductFeeInt = tx.deduct_fee ? 1 : 0;
+        const isDebtInt = normalizedTx.is_debt ? 1 : 0;
+        const deductFeeInt = normalizedTx.deduct_fee ? 1 : 0;
         await db.runAsync(
           "INSERT INTO transactions (type, amount, fee, channel, customer_id, is_debt, deduct_fee, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-          [tx.type, tx.amount, tx.fee, tx.channel, tx.customer_id, isDebtInt, deductFeeInt, createdAt]
+          [normalizedTx.type, normalizedTx.amount, normalizedTx.fee, normalizedTx.channel, normalizedTx.customer_id, isDebtInt, deductFeeInt, createdAt]
         );
       },
       onSuccess: () => {
@@ -1618,21 +1757,17 @@ export function useDbQueries() {
         is_debt: boolean;
         deduct_fee: boolean;
       }) => {
-        const isDebtInt = tx.is_debt ? 1 : 0;
-        const deductFeeInt = tx.deduct_fee ? 1 : 0;
-        if (tx.is_debt && !tx.customer_id) {
-          throw new Error('Debtor name is required for credit transactions.');
+        const normalizedTx = { ...tx, amount: roundCurrency(tx.amount), fee: roundCurrency(tx.fee) };
+        assertValidTransactionInput(normalizedTx);
+        const wallet = await db.getFirstAsync<{ channel: string }>("SELECT channel FROM wallets WHERE channel = ?", [normalizedTx.channel]);
+        if (!wallet) throw new Error('Selected wallet does not exist.');
+        if (normalizedTx.customer_id) {
+          const customer = await db.getFirstAsync<{ id: number }>("SELECT id FROM customers WHERE id = ?", [normalizedTx.customer_id]);
+          if (!customer) throw new Error('Selected debtor does not exist.');
         }
-        if (tx.amount < 0 || tx.fee < 0) {
-          throw new Error('Transaction amount and fee must be non-negative.');
-        }
-        if (tx.type === 'DEBT_PAYMENT') {
-          if (!tx.customer_id) {
-            throw new Error('Debt payment must stay linked to a debtor.');
-          }
-          if (tx.amount === 0 && tx.fee <= 0) {
-            throw new Error('Debt payment must include a principal payment or extra profit/interest.');
-          }
+        const isDebtInt = normalizedTx.is_debt ? 1 : 0;
+        const deductFeeInt = normalizedTx.deduct_fee ? 1 : 0;
+        if (normalizedTx.type === 'DEBT_PAYMENT') {
           const debtResult = await db.getFirstAsync<{ balance: number }>(
             `
               SELECT
@@ -1641,18 +1776,16 @@ export function useDbQueries() {
               FROM transactions
               WHERE customer_id = ? AND id != ?
             `,
-            [tx.customer_id, tx.id]
+            [normalizedTx.customer_id, tx.id]
           );
           const outstanding = debtResult?.balance ?? 0;
-          if (tx.amount - outstanding > 0.01) {
+          if (normalizedTx.amount - outstanding > 0.01) {
             throw new Error(`Debt payment cannot exceed the outstanding balance of ${outstanding.toFixed(2)}.`);
           }
-        } else if (tx.amount <= 0) {
-          throw new Error('Transaction amount must be greater than 0.');
         }
         await db.runAsync(
           "UPDATE transactions SET type = ?, amount = ?, fee = ?, channel = ?, customer_id = ?, is_debt = ?, deduct_fee = ? WHERE id = ?",
-          [tx.type, tx.amount, tx.fee, tx.channel, tx.customer_id, isDebtInt, deductFeeInt, tx.id]
+          [normalizedTx.type, normalizedTx.amount, normalizedTx.fee, normalizedTx.channel, normalizedTx.customer_id, isDebtInt, deductFeeInt, tx.id]
         );
       },
       onSuccess: () => {
@@ -1694,12 +1827,23 @@ export function useDbQueries() {
         profit?: number;
       }) => {
         const createdAt = new Date().toISOString();
-        const extraProfit = profit || 0;
-        if (amount < 0 || extraProfit < 0) {
-          throw new Error('Debt payment amount and extra profit/interest must be non-negative.');
-        }
-        if (amount === 0 && extraProfit <= 0) {
-          throw new Error('Debt payment must include a principal payment or extra profit/interest.');
+        amount = roundCurrency(amount);
+        const extraProfit = roundCurrency(profit || 0);
+        assertValidTransactionInput({ type: 'DEBT_PAYMENT', amount, fee: extraProfit, channel, customer_id, is_debt: false });
+        const wallet = await db.getFirstAsync<{ channel: string }>("SELECT channel FROM wallets WHERE channel = ?", [channel]);
+        if (!wallet) throw new Error('Selected wallet does not exist.');
+        const customer = await db.getFirstAsync<{ id: number }>("SELECT id FROM customers WHERE id = ?", [customer_id]);
+        if (!customer) throw new Error('Selected debtor does not exist.');
+        const debtResult = await db.getFirstAsync<{ balance: number }>(
+          `SELECT
+            COALESCE(SUM(CASE WHEN is_debt = 1 THEN amount + CASE WHEN deduct_fee = 1 THEN 0 ELSE fee END ELSE 0 END), 0) -
+            COALESCE(SUM(CASE WHEN type = 'DEBT_PAYMENT' THEN amount ELSE 0 END), 0) AS balance
+           FROM transactions WHERE customer_id = ?`,
+          [customer_id]
+        );
+        const outstanding = debtResult?.balance ?? 0;
+        if (amount - outstanding > 0.01) {
+          throw new Error(`Debt payment cannot exceed the outstanding balance of ${outstanding.toFixed(2)}.`);
         }
         // A debt payment is recorded as a transaction of type DEBT_PAYMENT
         // It increases the float of the selected channel and decreases the customer's balance.
@@ -1722,9 +1866,14 @@ export function useDbQueries() {
   const useUpdateWalletBalance = () => {
     return useMutation({
       mutationFn: async ({ channel, balance }: { channel: string; balance: number }) => {
+        if (!Number.isFinite(balance) || balance < 0) {
+          throw new Error('Wallet balance must be a non-negative amount.');
+        }
+        const wallet = await db.getFirstAsync<{ channel: string }>("SELECT channel FROM wallets WHERE channel = ?", [channel]);
+        if (!wallet) throw new Error('Selected wallet does not exist.');
         await db.runAsync(
           "UPDATE wallets SET balance = ? WHERE channel = ?",
-          [balance, channel]
+          [roundCurrency(balance), channel]
         );
       },
       onSuccess: () => {
@@ -1740,6 +1889,7 @@ export function useDbQueries() {
       mutationFn: async ({ channel, balance }: { channel: string; balance: number }) => {
         const chKey = channel.trim().toUpperCase();
         if (!chKey) throw new Error("Wallet name cannot be blank.");
+        if (!Number.isFinite(balance) || balance < 0) throw new Error('Wallet balance must be a non-negative amount.');
 
         const existing = await db.getFirstAsync<{ channel: string }>(
           "SELECT channel FROM wallets WHERE UPPER(channel) = ?",
@@ -1751,7 +1901,7 @@ export function useDbQueries() {
 
         await db.runAsync(
           "INSERT INTO wallets (channel, balance) VALUES (?, ?)",
-          [channel.trim(), balance]
+          [channel.trim(), roundCurrency(balance)]
         );
       },
       onSuccess: () => {
@@ -1800,6 +1950,9 @@ export function useDbQueries() {
           DROP TRIGGER IF EXISTS tr_transaction_delete;
           DROP TRIGGER IF EXISTS tr_transaction_update;
           DROP TRIGGER IF EXISTS tr_wallet_balance_guard;
+          DROP TRIGGER IF EXISTS tr_transaction_validate_insert;
+          DROP TRIGGER IF EXISTS tr_transaction_validate_update;
+          DROP TRIGGER IF EXISTS tr_customer_delete_with_balance_guard;
         `);
 
         try {
@@ -1955,18 +2108,17 @@ export function useDbQueries() {
   const useRestoreBackup = () => {
     return useMutation({
       mutationFn: async (backup: BackupData) => {
-        if (backup.schema !== 'trackapp.backup' || backup.version !== 1) {
-          throw new Error('This is not a supported TrackApp backup file.');
-        }
-        if (!Array.isArray(backup.customers) || !Array.isArray(backup.transactions) || !Array.isArray(backup.wallets)) {
-          throw new Error('Backup file is missing required ledger data.');
-        }
+        backup = repairBackupDebtPaymentCustomers(backup);
+        assertValidBackup(backup);
 
         await db.execAsync(`
           DROP TRIGGER IF EXISTS tr_transaction_insert;
           DROP TRIGGER IF EXISTS tr_transaction_delete;
           DROP TRIGGER IF EXISTS tr_transaction_update;
           DROP TRIGGER IF EXISTS tr_wallet_balance_guard;
+          DROP TRIGGER IF EXISTS tr_transaction_validate_insert;
+          DROP TRIGGER IF EXISTS tr_transaction_validate_update;
+          DROP TRIGGER IF EXISTS tr_customer_delete_with_balance_guard;
         `);
 
         try {

@@ -13,6 +13,7 @@ type RepairTransactionRow = {
 
 const DEBT_PAYMENT_REPAIR_KEY = 'debt_payment_customer_repair_v1';
 const DEBT_PAYMENT_FEE_WALLET_REPAIR_KEY = 'debt_payment_fee_wallet_repair_v1';
+const CURRENCY_ROUNDING_REPAIR_KEY = 'currency_rounding_repair_v1';
 
 function getDebtDelta(tx: RepairTransactionRow) {
   if (tx.is_debt === 1) {
@@ -115,6 +116,25 @@ async function repairDebtPaymentFeeWalletCredits(db: SQLite.SQLiteDatabase) {
   );
 }
 
+async function normalizeStoredCurrencyValues(db: SQLite.SQLiteDatabase) {
+  const alreadyNormalized = await db.getFirstAsync<{ value: string }>(
+    'SELECT value FROM settings WHERE key = ?',
+    [CURRENCY_ROUNDING_REPAIR_KEY]
+  );
+  if (alreadyNormalized?.value === 'done') return;
+
+  await db.execAsync(`
+    UPDATE transactions
+    SET amount = ROUND((amount + 0.000000001) * 100) / 100,
+        fee = ROUND((fee + 0.000000001) * 100) / 100;
+    UPDATE wallets SET balance = ROUND((balance + 0.000000001) * 100) / 100;
+  `);
+  await db.runAsync(
+    'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
+    [CURRENCY_ROUNDING_REPAIR_KEY, 'done']
+  );
+}
+
 export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
   // Optimize pragmas for safety, speed, and corruption resistance
   await db.execAsync(`
@@ -168,19 +188,91 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
   }
   try {
     await db.execAsync("ALTER TABLE customers ADD COLUMN notes TEXT;");
-  } catch {}
+  } catch { }
   try {
     await db.execAsync("ALTER TABLE customers ADD COLUMN follow_up_status TEXT NOT NULL DEFAULT 'active';");
-  } catch {}
+  } catch { }
   try {
     await db.execAsync("ALTER TABLE customers ADD COLUMN last_reminded_at TEXT;");
-  } catch {}
+  } catch { }
 
 
   // Drop old triggers to redefine them
   await db.execAsync(`
     DROP TRIGGER IF EXISTS tr_transaction_insert;
     DROP TRIGGER IF EXISTS tr_transaction_delete;
+    DROP TRIGGER IF EXISTS tr_transaction_validate_insert;
+    DROP TRIGGER IF EXISTS tr_transaction_validate_update;
+    DROP TRIGGER IF EXISTS tr_customer_delete_with_balance_guard;
+    DROP TRIGGER IF EXISTS tr_transaction_update;
+    DROP TRIGGER IF EXISTS tr_wallet_balance_guard;
+  `);
+
+
+  // Keep direct SQLite writes from bypassing the application validation layer.
+  // These triggers apply only to future writes, so they do not rewrite existing ledger data.
+  await db.execAsync(`
+    CREATE TRIGGER tr_transaction_validate_insert
+    BEFORE INSERT ON transactions
+    FOR EACH ROW
+    BEGIN
+      SELECT CASE WHEN NEW.type NOT IN ('CASH_IN', 'CASH_OUT', 'E_LOAD', 'TV_LOAD', 'DEBT_PAYMENT')
+        THEN RAISE(ABORT, 'Invalid transaction type.') END;
+      SELECT CASE WHEN NEW.amount < 0 OR NEW.fee < 0 OR NEW.is_debt NOT IN (0, 1) OR NEW.deduct_fee NOT IN (0, 1)
+        THEN RAISE(ABORT, 'Invalid transaction amount or fee.') END;
+      SELECT CASE WHEN NEW.type != 'DEBT_PAYMENT' AND NEW.amount <= 0
+        THEN RAISE(ABORT, 'Transaction amount must be greater than 0.') END;
+      SELECT CASE WHEN NEW.type = 'DEBT_PAYMENT' AND (NEW.customer_id IS NULL OR NEW.is_debt != 0 OR (NEW.amount = 0 AND NEW.fee <= 0))
+        THEN RAISE(ABORT, 'Invalid debt payment.') END;
+      SELECT CASE WHEN NEW.deduct_fee = 1 AND NEW.fee > NEW.amount
+        THEN RAISE(ABORT, 'A deducted fee cannot be greater than the transaction amount.') END;
+      SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM wallets WHERE channel = NEW.channel)
+        THEN RAISE(ABORT, 'Selected wallet does not exist.') END;
+      SELECT CASE WHEN NEW.customer_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM customers WHERE id = NEW.customer_id)
+        THEN RAISE(ABORT, 'Selected debtor does not exist.') END;
+      SELECT CASE WHEN NEW.type = 'DEBT_PAYMENT' AND NEW.amount > (
+        SELECT COALESCE(SUM(CASE WHEN is_debt = 1 THEN amount + CASE WHEN deduct_fee = 1 THEN 0 ELSE fee END ELSE 0 END), 0) -
+               COALESCE(SUM(CASE WHEN type = 'DEBT_PAYMENT' THEN amount ELSE 0 END), 0)
+        FROM transactions WHERE customer_id = NEW.customer_id
+      ) + 0.01 THEN RAISE(ABORT, 'Debt payment cannot exceed the outstanding balance.') END;
+    END;
+
+    CREATE TRIGGER tr_transaction_validate_update
+    BEFORE UPDATE ON transactions
+    FOR EACH ROW
+    BEGIN
+      SELECT CASE WHEN NEW.type NOT IN ('CASH_IN', 'CASH_OUT', 'E_LOAD', 'TV_LOAD', 'DEBT_PAYMENT')
+        THEN RAISE(ABORT, 'Invalid transaction type.') END;
+      SELECT CASE WHEN NEW.amount < 0 OR NEW.fee < 0 OR NEW.is_debt NOT IN (0, 1) OR NEW.deduct_fee NOT IN (0, 1)
+        THEN RAISE(ABORT, 'Invalid transaction amount or fee.') END;
+      SELECT CASE WHEN NEW.type != 'DEBT_PAYMENT' AND NEW.amount <= 0
+        THEN RAISE(ABORT, 'Transaction amount must be greater than 0.') END;
+      SELECT CASE WHEN NEW.type = 'DEBT_PAYMENT' AND (NEW.customer_id IS NULL OR NEW.is_debt != 0 OR (NEW.amount = 0 AND NEW.fee <= 0))
+        THEN RAISE(ABORT, 'Invalid debt payment.') END;
+      SELECT CASE WHEN NEW.deduct_fee = 1 AND NEW.fee > NEW.amount
+        THEN RAISE(ABORT, 'A deducted fee cannot be greater than the transaction amount.') END;
+      SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM wallets WHERE channel = NEW.channel)
+        THEN RAISE(ABORT, 'Selected wallet does not exist.') END;
+      SELECT CASE WHEN NEW.customer_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM customers WHERE id = NEW.customer_id)
+        THEN RAISE(ABORT, 'Selected debtor does not exist.') END;
+      SELECT CASE WHEN NEW.type = 'DEBT_PAYMENT' AND NEW.amount > (
+        SELECT COALESCE(SUM(CASE WHEN is_debt = 1 THEN amount + CASE WHEN deduct_fee = 1 THEN 0 ELSE fee END ELSE 0 END), 0) -
+               COALESCE(SUM(CASE WHEN type = 'DEBT_PAYMENT' THEN amount ELSE 0 END), 0)
+        FROM transactions WHERE customer_id = NEW.customer_id AND id != OLD.id
+      ) + 0.01 THEN RAISE(ABORT, 'Debt payment cannot exceed the outstanding balance.') END;
+    END;
+
+    CREATE TRIGGER tr_customer_delete_with_balance_guard
+    BEFORE DELETE ON customers
+    FOR EACH ROW
+    WHEN ABS((
+      SELECT COALESCE(SUM(CASE WHEN is_debt = 1 THEN amount + CASE WHEN deduct_fee = 1 THEN 0 ELSE fee END ELSE 0 END), 0) -
+             COALESCE(SUM(CASE WHEN type = 'DEBT_PAYMENT' THEN amount ELSE 0 END), 0)
+      FROM transactions WHERE customer_id = OLD.id
+    )) > 0.01
+    BEGIN
+      SELECT RAISE(ABORT, 'Cannot delete a customer with an outstanding debt. Settle the balance first.');
+    END;
   `);
 
   // Create SQLite triggers for transaction insertions
@@ -357,6 +449,9 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
       await db.runAsync('INSERT INTO settings (key, value) VALUES (?, ?)', [s.key, s.value]);
     }
   }
+
+  // Normalize legacy floating-point values once after the base schema is complete.
+  await normalizeStoredCurrencyValues(db);
 
   await repairDebtPaymentFeeWalletCredits(db);
   await repairBrokenDebtPayments(db);
