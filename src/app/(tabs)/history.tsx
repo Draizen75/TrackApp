@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, Modal, Switch, KeyboardAvoidingView } from 'react-native';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, Modal, Switch, KeyboardAvoidingView, FlatList, ListRenderItem } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useDbQueries, Transaction, cleanErrorMessage } from '@/hooks/useDbQueries';
@@ -34,6 +34,134 @@ const clearZeroIfNeeded = (value: string, setter: (value: string) => void) => {
 
 type FilterType = 'ALL' | 'CASH_IN' | 'CASH_OUT' | 'E_LOAD' | 'TV_LOAD' | 'DEBT_PAYMENT';
 
+const useDebouncedValue = (value: string, delay = 300) => {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const timeout = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(timeout);
+  }, [value, delay]);
+
+  return debouncedValue;
+};
+
+const transactionDateFormatter = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
+const getTxTypeDetails = (type: Transaction['type']) => {
+  switch (type) {
+    case 'CASH_IN':
+      return { label: 'Cash In', text: '#6fa3d8', bg: 'rgba(111,163,216,0.12)', border: 'rgba(111,163,216,0.2)' };
+    case 'CASH_OUT':
+      return { label: 'Cash Out', text: C.success, bg: C.successDim, border: 'rgba(90,155,110,0.2)' };
+    case 'E_LOAD':
+      return { label: 'E-Load', text: '#8b7cf8', bg: 'rgba(139,124,248,0.12)', border: 'rgba(139,124,248,0.2)' };
+    case 'TV_LOAD':
+      return { label: 'TV Load', text: '#ab70d8', bg: 'rgba(171,112,216,0.12)', border: 'rgba(171,112,216,0.2)' };
+    case 'DEBT_PAYMENT':
+      return { label: 'Debt Pay', text: C.warning, bg: 'rgba(201,123,46,0.12)', border: 'rgba(201,123,46,0.2)' };
+  }
+};
+
+const getWalletLabel = (channel: string) => {
+  const upper = channel.toUpperCase();
+  const defaultNames: Record<string, string> = {
+    GCASH: 'GCash',
+    MAYA: 'Maya',
+    MAYA_BUSINESS: 'Maya Biz',
+    MARIBANK: 'MariBank',
+    PHYSICAL_CASH: 'Cash Box',
+  };
+  if (defaultNames[upper]) return defaultNames[upper];
+  return channel.length <= 4 ? channel.toUpperCase() : (channel.charAt(0).toUpperCase() + channel.slice(1));
+};
+
+const TransactionCard = React.memo(function TransactionCard({
+  transaction,
+  onEdit,
+  onDelete,
+}: {
+  transaction: Transaction;
+  onEdit: (transaction: Transaction) => void;
+  onDelete: (id: number) => void;
+}) {
+  const typeDetails = getTxTypeDetails(transaction.type);
+  const formattedTime = transaction.created_at
+    ? transactionDateFormatter.format(new Date(transaction.created_at))
+    : 'N/A';
+
+  return (
+    <View
+      style={{
+        borderRadius: 16,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: C.border,
+        backgroundColor: C.surface,
+        marginBottom: 12,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center'
+      }}
+    >
+      <View style={{ flex: 1, marginRight: 16 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+          <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: typeDetails.bg, borderWidth: 1, borderColor: typeDetails.border }}>
+            <Text style={{ fontSize: 8, fontWeight: '900', textTransform: 'uppercase', color: typeDetails.text }}>
+              {typeDetails.label}
+            </Text>
+          </View>
+          {transaction.is_debt === 1 && (
+            <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: C.dangerDim, borderWidth: 1, borderColor: 'rgba(220,107,90,0.2)' }}>
+              <Text style={{ fontSize: 8, fontWeight: '900', textTransform: 'uppercase', color: C.danger }}>
+                UTANG
+              </Text>
+            </View>
+          )}
+          <Text style={{ color: C.text3, fontSize: 9 }}>{formattedTime}</Text>
+        </View>
+
+        <Text style={{ color: C.text1, fontSize: 14, fontWeight: '700', marginBottom: 4 }} numberOfLines={1}>
+          {transaction.customer_name || 'Sari-Sari Anonymous'}
+        </Text>
+
+        <Text style={{ color: C.text3, fontSize: 11 }}>
+          Wallet: <Text style={{ color: C.text2, fontWeight: '600' }}>{getWalletLabel(transaction.channel)}</Text>
+        </Text>
+      </View>
+
+      <View style={{ alignItems: 'flex-end' }}>
+        <Text style={{ color: C.text1, fontSize: 14, fontWeight: '900', marginBottom: 2 }}>
+          ₱{transaction.amount.toFixed(2)}
+        </Text>
+        {transaction.fee > 0 && (
+          <Text style={{ color: C.accent, fontSize: 10, fontWeight: '700', marginBottom: 8 }}>
+            Fee: +₱{transaction.fee.toFixed(2)}
+          </Text>
+        )}
+        <View style={{ flexDirection: 'row', gap: 6 }}>
+          <TouchableOpacity
+            onPress={() => onEdit(transaction)}
+            style={{ padding: 6, backgroundColor: C.surface2, borderRadius: 8, borderWidth: 1, borderColor: C.border }}
+          >
+            <Pencil size={13} color={C.accent} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => onDelete(transaction.id)}
+            style={{ padding: 6, backgroundColor: C.surface2, borderRadius: 8, borderWidth: 1, borderColor: C.border }}
+          >
+            <Trash2 size={13} color={C.text3} />
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+});
+
 export default function HistoryScreen() {
   const { showToast } = useToast();
   const router = useRouter();
@@ -52,10 +180,12 @@ export default function HistoryScreen() {
   const { data: wallets = [] } = useWallets();
   
   const deleteTransactionMutation = useDeleteTransaction();
+  const { mutate: deleteTransaction } = deleteTransactionMutation;
   const updateTransactionMutation = useUpdateTransaction();
   const addCustomerMutation = useAddCustomer();
 
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearchQuery = useDebouncedValue(searchQuery);
   const [selectedFilter, setSelectedFilter] = useState<FilterType>('ALL');
 
   // Edit modal states
@@ -72,11 +202,11 @@ export default function HistoryScreen() {
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  const handleDelete = (id: number) => {
+  const handleDelete = useCallback((id: number) => {
     if (process.env.EXPO_OS === 'web') {
       const confirmDelete = window.confirm("Are you sure you want to revert this transaction? This will automatically restore the original wallet balances.");
       if (confirmDelete) {
-        deleteTransactionMutation.mutate(id, {
+        deleteTransaction(id, {
           onSuccess: () => {
             showToast("Transaction reverted successfully.", "info");
           },
@@ -96,7 +226,7 @@ export default function HistoryScreen() {
         { 
           text: "Revert", 
           style: "destructive",
-          onPress: () => deleteTransactionMutation.mutate(id, {
+          onPress: () => deleteTransaction(id, {
             onSuccess: () => {
               showToast("Transaction reverted successfully.", "info");
             },
@@ -107,9 +237,9 @@ export default function HistoryScreen() {
         }
       ]
     );
-  };
+  }, [deleteTransaction, showToast]);
 
-  const handleOpenEditModal = (tx: Transaction) => {
+  const handleOpenEditModal = useCallback((tx: Transaction) => {
     setSelectedTx(tx);
     setEditAmount(tx.amount.toString());
     setEditFee(tx.fee.toString());
@@ -121,7 +251,7 @@ export default function HistoryScreen() {
     setCustomerSearchQuery(tx.customer_name || '');
     setShowCustomerDropdown(false);
     setEditModalVisible(true);
-  };
+  }, []);
 
   useEffect(() => {
     if (editTxId && transactions.length > 0) {
@@ -134,7 +264,7 @@ export default function HistoryScreen() {
         router.setParams({ editTxId: undefined });
       }
     }
-  }, [editTxId, transactions, router]);
+  }, [editTxId, transactions, router, handleOpenEditModal]);
 
   const selectCustomer = (id: number, name: string) => {
     setSelectedCustomerId(id);
@@ -260,8 +390,8 @@ export default function HistoryScreen() {
       if (selectedFilter !== 'ALL' && tx.type !== selectedFilter) {
         return false;
       }
-      if (searchQuery.trim().length > 0) {
-        const query = searchQuery.toLowerCase();
+      if (debouncedSearchQuery.trim().length > 0) {
+        const query = debouncedSearchQuery.toLowerCase();
         const custName = (tx.customer_name || 'anonymous transaction').toLowerCase();
         const channel = (tx.channel || '').toLowerCase();
         const amtStr = (tx.amount || '').toString();
@@ -270,37 +400,12 @@ export default function HistoryScreen() {
       }
       return true;
     });
-  }, [transactions, searchQuery, selectedFilter]);
+  }, [transactions, debouncedSearchQuery, selectedFilter]);
 
-  const getTxTypeDetails = (type: string) => {
-    switch (type) {
-      case 'CASH_IN':
-        return { label: 'Cash In', text: '#6fa3d8', bg: 'rgba(111,163,216,0.12)', border: 'rgba(111,163,216,0.2)' };
-      case 'CASH_OUT':
-        return { label: 'Cash Out', text: C.success, bg: C.successDim, border: 'rgba(90,155,110,0.2)' };
-      case 'E_LOAD':
-        return { label: 'E-Load', text: '#8b7cf8', bg: 'rgba(139,124,248,0.12)', border: 'rgba(139,124,248,0.2)' };
-      case 'TV_LOAD':
-        return { label: 'TV Load', text: '#ab70d8', bg: 'rgba(171,112,216,0.12)', border: 'rgba(171,112,216,0.2)' };
-      case 'DEBT_PAYMENT':
-        return { label: 'Debt Pay', text: C.warning, bg: 'rgba(201,123,46,0.12)', border: 'rgba(201,123,46,0.2)' };
-      default:
-        return { label: 'Transaction', text: C.text2, bg: C.surface2, border: C.border };
-    }
-  };
-
-  const getWalletLabel = (channel: string) => {
-    const upper = channel.toUpperCase();
-    const defaultNames: Record<string, string> = {
-      GCASH: 'GCash',
-      MAYA: 'Maya',
-      MAYA_BUSINESS: 'Maya Biz',
-      MARIBANK: 'MariBank',
-      PHYSICAL_CASH: 'Cash Box',
-    };
-    if (defaultNames[upper]) return defaultNames[upper];
-    return channel.length <= 4 ? channel.toUpperCase() : (channel.charAt(0).toUpperCase() + channel.slice(1));
-  };
+  const renderTransaction = useCallback<ListRenderItem<Transaction>>(
+    ({ item }) => <TransactionCard transaction={item} onEdit={handleOpenEditModal} onDelete={handleDelete} />,
+    [handleDelete, handleOpenEditModal]
+  );
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}>
@@ -310,7 +415,12 @@ export default function HistoryScreen() {
         {/* Header */}
         <View style={{ marginVertical: 20 }}>
           <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase' }}>Shop Auditing</Text>
-          <Text style={{ color: C.text1, fontSize: 24, fontWeight: '800', marginTop: 2 }}>Transaction History</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 }}>
+            <Text style={{ flexShrink: 1, color: C.text1, fontSize: 24, fontWeight: '800' }}>Transaction History</Text>
+            <View style={{ flexShrink: 0, marginLeft: 8, backgroundColor: C.accentDim, borderWidth: 1, borderColor: C.borderLight, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 5 }}>
+              <Text style={{ color: C.accent, fontSize: 10, fontWeight: '800' }}>Total Records: {transactions.length}</Text>
+            </View>
+          </View>
         </View>
 
         {/* Search Box */}
@@ -370,22 +480,35 @@ export default function HistoryScreen() {
           </ScrollView>
         </View>
 
+        <Text style={{ color: C.text3, fontSize: 11, fontWeight: '600', marginBottom: 10 }}>
+          Showing {filteredTransactions.length} of {transactions.length} transactions
+        </Text>
+
         {/* List Content */}
         {isLoading ? (
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
             <Text style={{ color: C.text3, fontSize: 13 }}>Loading transaction records...</Text>
           </View>
-        ) : filteredTransactions.length === 0 ? (
-          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40 }}>
-            <Text style={{ color: C.text2, fontSize: 14, fontWeight: '700', marginBottom: 4 }}>No transaction records found</Text>
-            <Text style={{ color: C.text3, fontSize: 12, textAlign: 'center', paddingHorizontal: 32 }}>Try adjusting your filters or search terms</Text>
-          </View>
         ) : (
-          <ScrollView 
+          <FlatList
+            data={filteredTransactions}
+            renderItem={renderTransaction}
+            keyExtractor={(transaction) => transaction.id.toString()}
+            initialNumToRender={10}
+            maxToRenderPerBatch={10}
+            windowSize={5}
             style={{ flex: 1 }} 
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: 110 }}
+            ListEmptyComponent={
+              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40 }}>
+                <Text style={{ color: C.text2, fontSize: 14, fontWeight: '700', marginBottom: 4 }}>No transaction records found</Text>
+                <Text style={{ color: C.text3, fontSize: 12, textAlign: 'center', paddingHorizontal: 32 }}>Try adjusting your filters or search terms</Text>
+              </View>
+            }
           >
+            {/* Previous eager mapping retained only as a disabled reference while the FlatList owns rendering. */}
+            {/*
             {filteredTransactions.map((tx: any) => {
               const typeDetails = getTxTypeDetails(tx.type);
               const isUtang = tx.is_debt === 1;
@@ -466,7 +589,8 @@ export default function HistoryScreen() {
                 </View>
               );
             })}
-          </ScrollView>
+            */}
+          </FlatList>
         )}
       </View>
 

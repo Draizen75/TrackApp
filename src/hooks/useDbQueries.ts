@@ -646,13 +646,13 @@ function useWebDbQueries() {
       queryKey: ['transactions'],
       queryFn: async () => {
         const db = getWebDb();
+        const customerNamesById = new Map((db.customers || []).map((customer: any) => [customer.id, customer.name]));
         return [...(db.transactions || [])]
           .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
           .map(tx => {
-            const cust = db.customers.find((c: any) => c.id === tx.customer_id);
             return {
               ...tx,
-              customer_name: cust ? cust.name : null
+              customer_name: customerNamesById.get(tx.customer_id) || null
             };
           });
       }
