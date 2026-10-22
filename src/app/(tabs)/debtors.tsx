@@ -213,10 +213,11 @@ export default function DebtorsScreen() {
     if (!selectedDebtor || settleMutation.isPending) return; // Prevent double trigger
     const parsedReceived = parseFloat(settleAmount);
     const received = Number.isFinite(parsedReceived) ? parsedReceived : 0;
+    const enteredProfit = parseFloat(settleProfit);
+    const profit = Number.isFinite(enteredProfit)
+      ? enteredProfit
+      : Math.max(0, received - selectedDebtor.balance);
     const amount = Math.min(received, selectedDebtor.balance);
-    const profit = received > 0
-      ? Math.max(0, received - selectedDebtor.balance)
-      : (parseFloat(settleProfit) || 0);
 
     if (received < 0 || profit < 0) {
       Alert.alert("Invalid Amount", "Please enter non-negative amounts.");
@@ -935,7 +936,7 @@ export default function DebtorsScreen() {
                 editable={!settleMutation.isPending}
               />
 
-              <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>Extra Profit (Auto-calculated)</Text>
+              <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>Extra Profit (Suggested, Editable)</Text>
               <TextInput
                 style={{
                   backgroundColor: C.bg,
@@ -954,10 +955,10 @@ export default function DebtorsScreen() {
                 onChangeText={setSettleProfit}
                 placeholder="0.00"
                 placeholderTextColor={C.text3}
-                editable={!settleMutation.isPending && (!settleAmount || parseFloat(settleAmount) <= 0)}
+                editable={!settleMutation.isPending}
               />
               <Text style={{ color: C.text3, fontSize: 10, marginTop: -8, marginBottom: 16 }}>
-                Amounts above the pending balance are automatically recorded as extra profit. Set payment to 0 to record profit only.
+                Amounts above the pending balance suggest extra profit automatically. You can edit the suggestion, or set payment to 0 to record profit only.
               </Text>
 
               <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>Destination Channel (Add Float)</Text>

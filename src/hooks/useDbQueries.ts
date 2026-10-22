@@ -146,7 +146,8 @@ function getNextWebId(items: { id: number }[]) {
 
 export function assertValidBackup(backup: BackupData) {
   if (!backup || typeof backup !== 'object' || backup.schema !== 'trackapp.backup' || backup.version !== 1 ||
-    !Array.isArray(backup.customers) || !Array.isArray(backup.transactions) || !Array.isArray(backup.wallets)) {
+    !Array.isArray(backup.customers) || !Array.isArray(backup.transactions) || !Array.isArray(backup.wallets) ||
+    !backup.settings || typeof backup.settings !== 'object' || Array.isArray(backup.settings)) {
     throw new Error('Backup file is missing required ledger data.');
   }
   if (!backup.exported_at || !Number.isFinite(new Date(backup.exported_at).getTime())) {
