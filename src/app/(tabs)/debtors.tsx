@@ -1,9 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Modal, KeyboardAvoidingView, FlatList } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { calculateDebtPaymentAllocation, calculateLedgerDebtAllocation, useDbQueries, Debtor, cleanErrorMessage } from '@/hooks/useDbQueries';
+import { calculateDebtPaymentAllocation, calculateLedgerDebtAllocation, getDebtEntryOutstanding, splitSettlementReceived, useDbQueries, Debtor, Transaction, cleanErrorMessage } from '@/hooks/useDbQueries';
 import { useToast } from '@/components/toast';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { 
   MessageSquare, 
   Check, 
@@ -20,29 +20,13 @@ import {
 import * as SMS from 'expo-sms';
 import * as Haptics from 'expo-haptics';
 import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
+import { ledgerColors as C } from '@/theme/ledger';
 
 // ─── Warm Architectural Design Tokens ─────────────────────────────────────────
-const C = {
-  bg: '#12100e',
-  surface: '#1c1916',
-  surface2: '#221e1b',
-  border: '#2d2920',
-  borderLight: '#3a342e',
-  accent: '#e6a817',
-  accentDim: 'rgba(230,168,23,0.12)',
-  success: '#5a9b6e',
-  successDim: 'rgba(90,155,110,0.12)',
-  danger: '#dc6b5a',
-  dangerDim: 'rgba(220,107,90,0.12)',
-  warning: '#c97b2e',
-  text1: '#f0ece5',
-  text2: '#a89f95',
-  text3: '#6b6158',
-};
-
 export default function DebtorsScreen() {
   const { showToast } = useToast();
   const router = useRouter();
+  const { settleDebtId } = useLocalSearchParams<{ settleDebtId?: string }>();
   const { useDebtors, useSettleDebt, useTransactions, useWallets, useDeleteCustomer, useDeleteTransaction, useUpdateCustomerMeta } = useDbQueries();
   const { data: debtors = [], isLoading, refetch } = useDebtors();
   const { data: transactions = [] } = useTransactions();
@@ -54,6 +38,7 @@ export default function DebtorsScreen() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDebtor, setSelectedDebtor] = useState<Debtor | null>(null);
+  const [selectedDebtEntry, setSelectedDebtEntry] = useState<Transaction | null>(null);
   const [settleAmount, setSettleAmount] = useState('');
   const [settleProfit, setSettleProfit] = useState('');
   const [settleChannel, setSettleChannel] = useState<string>('PHYSICAL_CASH');
@@ -61,6 +46,18 @@ export default function DebtorsScreen() {
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [showSettledList, setShowSettledList] = useState(false);
   const [sortMode, setSortMode] = useState<'overdue' | 'recent_activity' | 'largest' | 'recent_payment'>('recent_activity');
+
+  const debtorLedgerHistory = useMemo(() => {
+    if (!selectedDebtor) return [];
+    return transactions.filter(t => t.customer_id === selectedDebtor.id && (t.is_debt === 1 || t.type === 'DEBT_PAYMENT'));
+  }, [transactions, selectedDebtor]);
+
+  const getSettlementPrincipalCap = () => {
+    if (!selectedDebtor) return 0;
+    return selectedDebtEntry
+      ? getDebtEntryOutstanding(debtorLedgerHistory, selectedDebtEntry.id)
+      : selectedDebtor.balance;
+  };
 
   const handleSendSMS = async (debtor: Debtor) => {
     if (process.env.EXPO_OS !== 'web') {
@@ -92,6 +89,7 @@ export default function DebtorsScreen() {
 
   const openSettleModal = (debtor: Debtor) => {
     setSelectedDebtor(debtor);
+    setSelectedDebtEntry(null);
     setSettleAmount(debtor.balance.toString());
     setSettleProfit('');
     setModalVisible(true);
@@ -102,8 +100,8 @@ export default function DebtorsScreen() {
     const received = parseFloat(value);
     if (!selectedDebtor || !Number.isFinite(received) || received <= 0) return;
 
-    const excess = Math.max(0, received - selectedDebtor.balance);
-    setSettleProfit(excess > 0 ? excess.toFixed(2) : '');
+    const { suggestedProfit } = splitSettlementReceived(received, getSettlementPrincipalCap());
+    setSettleProfit(suggestedProfit > 0 ? suggestedProfit.toFixed(2) : '');
   };
 
   const handleQuickFullSettle = async (debtor: Debtor) => {
@@ -214,10 +212,12 @@ export default function DebtorsScreen() {
     const parsedReceived = parseFloat(settleAmount);
     const received = Number.isFinite(parsedReceived) ? parsedReceived : 0;
     const enteredProfit = parseFloat(settleProfit);
+    const principalCap = getSettlementPrincipalCap();
+    const settlementSplit = splitSettlementReceived(received, principalCap);
     const profit = Number.isFinite(enteredProfit)
       ? enteredProfit
-      : Math.max(0, received - selectedDebtor.balance);
-    const amount = Math.min(received, selectedDebtor.balance);
+      : settlementSplit.suggestedProfit;
+    const amount = settlementSplit.principal;
 
     if (received < 0 || profit < 0) {
       Alert.alert("Invalid Amount", "Please enter non-negative amounts.");
@@ -237,12 +237,14 @@ export default function DebtorsScreen() {
         amount,
         profit,
         channel: settleChannel,
+        target_debt_id: selectedDebtEntry?.id,
       });
 
       setModalVisible(false);
       setDetailModalVisible(false);
       const name = selectedDebtor.name;
       setSelectedDebtor(null);
+      setSelectedDebtEntry(null);
       refetch();
       if (amount === 0) {
         showToast(`Recorded PHP ${profit.toFixed(2)} interest for ${name}. Debt principal unchanged.`, 'success');
@@ -327,11 +329,35 @@ export default function DebtorsScreen() {
     };
   }, [transactions]);
 
-  // Filter transactions for selected debtor
-  const debtorLedgerHistory = useMemo(() => {
-    if (!selectedDebtor) return [];
-    return transactions.filter(t => t.customer_id === selectedDebtor.id && (t.is_debt === 1 || t.type === 'DEBT_PAYMENT'));
-  }, [transactions, selectedDebtor]);
+  useEffect(() => {
+    const debtId = Number(settleDebtId);
+    if (!Number.isSafeInteger(debtId)) return;
+    const debt = transactions.find(tx => tx.id === debtId && tx.is_debt === 1);
+    const debtor = debt?.customer_id == null ? undefined : debtors.find(item => item.id === debt.customer_id);
+    if (!debt || !debtor) return;
+    const history = transactions.filter(tx => tx.customer_id === debtor.id && (tx.is_debt === 1 || tx.type === 'DEBT_PAYMENT'));
+    const outstanding = getDebtEntryOutstanding(history, debt.id);
+    router.setParams({ settleDebtId: undefined });
+    if (outstanding <= 0.01) return;
+    const openPayment = setTimeout(() => {
+      setSelectedDebtor(debtor);
+      setSelectedDebtEntry(debt);
+      setSettleAmount(outstanding.toFixed(2));
+      setSettleProfit('');
+      setDetailModalVisible(false);
+      setModalVisible(true);
+    }, 0);
+    return () => clearTimeout(openPayment);
+  }, [debtors, router, settleDebtId, transactions]);
+
+  const openSelectedDebtPayment = (debt: Transaction) => {
+    const outstanding = getDebtEntryOutstanding(debtorLedgerHistory, debt.id);
+    if (outstanding <= 0.01) return;
+    setSelectedDebtEntry(debt);
+    setSettleAmount(outstanding.toFixed(2));
+    setSettleProfit('');
+    setModalVisible(true);
+  };
 
   const debtorStatementSummary = useMemo(() => {
     const allocation = calculateDebtPaymentAllocation(debtorLedgerHistory);
@@ -399,7 +425,7 @@ export default function DebtorsScreen() {
         <ScrollView 
           style={{ flex: 1, paddingHorizontal: 16 }} 
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 110 }}
+          contentContainerStyle={{ paddingBottom: 160 }}
         >
           {/* Header */}
           <View style={{ marginVertical: 20 }}>
@@ -529,11 +555,11 @@ export default function DebtorsScreen() {
                             {alertInfo.level !== 'normal' && (
                               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: 'rgba(230,168,23,0.1)', borderWidth: 1, borderColor: 'rgba(230,168,23,0.2)' }}>
                                 <AlertTriangle size={8} color={C.accent} />
-                                <Text style={{ color: C.accent, fontSize: 8, fontWeight: '900' }}>OVERDUE</Text>
+                                <Text style={{ color: C.accent, fontSize: 10, fontWeight: '900' }}>OVERDUE</Text>
                               </View>
                             )}
                           </View>
-                          <Text style={{ fontSize: 9, fontWeight: alertInfo.fontWeight, marginTop: 4, textTransform: 'uppercase', letterSpacing: 1, color: alertInfo.text }}>
+                          <Text style={{ fontSize: 10, fontWeight: alertInfo.fontWeight, marginTop: 4, textTransform: 'uppercase', letterSpacing: 1, color: alertInfo.text }}>
                             {alertInfo.label}
                           </Text>
                           {debtor.phone && (
@@ -550,7 +576,7 @@ export default function DebtorsScreen() {
                             <Text style={{ color: C.text1, fontSize: 16, fontWeight: '900' }}>
                               ₱{debtor.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                             </Text>
-                            <Text style={{ color: C.text3, fontSize: 9, textAlign: 'right' }}>outstanding</Text>
+                            <Text style={{ color: C.text3, fontSize: 10, textAlign: 'right' }}>outstanding</Text>
                           </View>
                         </View>
 
@@ -571,6 +597,9 @@ export default function DebtorsScreen() {
                             </TouchableOpacity>
                             <TouchableOpacity
                               onPress={() => handleSendSMS(debtor)}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Send payment reminder to ${debtor.name}`}
+                              hitSlop={10}
                               style={{ backgroundColor: C.surface2, padding: 8, borderRadius: 12, borderWidth: 1, borderColor: C.border }}
                             >
                               <MessageSquare size={14} color="#6fa3d8" />
@@ -656,6 +685,9 @@ export default function DebtorsScreen() {
                               handleDeleteCustomer(debtor);
                             }}
                             disabled={deleteCustomerMutation.isPending}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Delete ${debtor.name}`}
+                            hitSlop={10}
                             style={{
                               padding: 8,
                               backgroundColor: C.dangerDim,
@@ -680,12 +712,12 @@ export default function DebtorsScreen() {
         {/* Debtor Profile Detail Modal */}
         <Modal
           animationType="slide"
-          transparent={true}
+          transparent={false}
           visible={detailModalVisible}
           onRequestClose={() => setDetailModalVisible(false)}
         >
-          <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(18, 16, 14, 0.85)' }}>
-            <View style={{ backgroundColor: C.surface, borderTopWidth: 1, borderColor: C.border, borderTopLeftRadius: 36, borderTopRightRadius: 36, padding: 24, height: '88%', paddingBottom: 24 }}>
+          <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }} edges={['top', 'bottom']}>
+            <View style={{ flex: 1, padding: 20, paddingBottom: 16 }}>
               {/* Header */}
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
                 <View>
@@ -694,6 +726,9 @@ export default function DebtorsScreen() {
                 </View>
                 <TouchableOpacity 
                   onPress={() => setDetailModalVisible(false)} 
+                accessibilityRole="button"
+                accessibilityLabel="Close debtor statement"
+                hitSlop={10}
                   style={{ padding: 8, backgroundColor: C.surface2, borderRadius: 20, borderWidth: 1, borderColor: C.border }}
                 >
                   <X size={18} color={C.text2} />
@@ -782,7 +817,7 @@ export default function DebtorsScreen() {
                       <View style={{ flex: 1, marginRight: 8 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                           <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: isPayment ? C.successDim : C.dangerDim, borderWidth: 1, borderColor: isPayment ? 'rgba(90,155,110,0.15)' : 'rgba(220,107,90,0.15)' }}>
-                            <Text style={{ color: isPayment ? C.success : C.danger, fontSize: 7, fontWeight: '900', textTransform: 'uppercase' }}>{isInterestOnlyPayment ? 'Interest' : isPayment ? 'Payment' : 'Debt'}</Text>
+                            <Text style={{ color: isPayment ? C.success : C.danger, fontSize: 10, fontWeight: '900', textTransform: 'uppercase' }}>{isInterestOnlyPayment ? 'Interest' : isPayment ? 'Payment' : 'Debt'}</Text>
                           </View>
                           <Text style={{ color: C.text1, fontSize: 12, fontWeight: '700' }}>{getTxTypeLabel(tx.type)}</Text>
                         </View>
@@ -790,11 +825,25 @@ export default function DebtorsScreen() {
                       </View>
                       <View style={{ alignItems: 'flex-end' }}>
                         <Text style={{ color: isPayment ? C.success : C.danger, fontSize: 13, fontWeight: '800' }}>{isPayment ? '-' : '+'}₱{txTotal.toFixed(2)}</Text>
-                        {isPayment && tx.fee > 0 && <Text style={{ color: C.accent, fontSize: 8 }}>Profit paid PHP {tx.fee.toFixed(2)}</Text>}
-                        {!isPayment && tx.fee > 0 && <Text style={{ color: C.text3, fontSize: 8 }}>{tx.deduct_fee === 1 ? `Deducted ₱${tx.fee.toFixed(2)} fee` : `Inc. ₱${tx.fee.toFixed(2)} fee`}</Text>}
+                        {isPayment && tx.fee > 0 && <Text style={{ color: C.accent, fontSize: 10 }}>Profit paid PHP {tx.fee.toFixed(2)}</Text>}
+                        {!isPayment && tx.fee > 0 && <Text style={{ color: C.text3, fontSize: 10 }}>{tx.deduct_fee === 1 ? `Deducted ₱${tx.fee.toFixed(2)} fee` : `Inc. ₱${tx.fee.toFixed(2)} fee`}</Text>}
                         <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
+                          {tx.is_debt === 1 && getDebtEntryOutstanding(debtorLedgerHistory, tx.id) > 0.01 && (
+                            <TouchableOpacity
+                              onPress={() => openSelectedDebtPayment(tx)}
+                              accessibilityRole="button"
+                              accessibilityLabel="Settle selected debt"
+                              hitSlop={8}
+                              style={{ width: 32, height: 32, justifyContent: 'center', alignItems: 'center' }}
+                            >
+                              <Coins size={14} color={C.success} />
+                            </TouchableOpacity>
+                          )}
                           <TouchableOpacity
                             onPress={() => openTransactionEditor(tx.id)}
+                            accessibilityRole="button"
+                            accessibilityLabel="Edit ledger transaction"
+                            hitSlop={10}
                             style={{ padding: 6, backgroundColor: C.surface, borderRadius: 8, borderWidth: 1, borderColor: C.border }}
                           >
                             <Pencil size={13} color={C.accent} />
@@ -802,6 +851,9 @@ export default function DebtorsScreen() {
                           <TouchableOpacity
                             onPress={() => handleDeleteLedgerTransaction(tx.id)}
                             disabled={deleteTransactionMutation.isPending}
+                            accessibilityRole="button"
+                            accessibilityLabel="Delete ledger transaction"
+                            hitSlop={10}
                             style={{ padding: 6, backgroundColor: C.surface, borderRadius: 8, borderWidth: 1, borderColor: C.border, opacity: deleteTransactionMutation.isPending ? 0.5 : 1 }}
                           >
                             <Trash2 size={13} color={C.text3} />
@@ -885,7 +937,7 @@ export default function DebtorsScreen() {
                 )}
               */}
             </View>
-          </View>
+          </SafeAreaView>
         </Modal>
 
         {/* Custom Settle Debt Modal */}
@@ -903,18 +955,23 @@ export default function DebtorsScreen() {
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
                 <View>
                   <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase' }}>Settle Ledger</Text>
-                  <Text style={{ color: C.text1, fontSize: 18, fontWeight: '800', marginTop: 2 }}>Pay Debt: {selectedDebtor?.name}</Text>
+                  <Text style={{ color: C.text1, fontSize: 18, fontWeight: '800', marginTop: 2 }}>
+                    {selectedDebtEntry ? `Pay selected debt: ₱${getDebtEntryOutstanding(debtorLedgerHistory, selectedDebtEntry.id).toFixed(2)}` : `Pay Debt: ${selectedDebtor?.name}`}
+                  </Text>
                 </View>
                 <TouchableOpacity 
                   onPress={() => setModalVisible(false)} 
                   disabled={settleMutation.isPending}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close settlement form"
+                  hitSlop={10}
                   style={{ padding: 8, backgroundColor: C.surface2, borderRadius: 20, borderWidth: 1, borderColor: C.border, opacity: settleMutation.isPending ? 0.5 : 1 }}
                 >
                   <X size={18} color={C.text2} />
                 </TouchableOpacity>
               </View>
 
-              <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>Total Payment Received (PHP)</Text>
+              <Text style={{ color: C.text3, fontSize: 11, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>Total Payment Received (PHP)</Text>
               <TextInput
                 style={{
                   backgroundColor: C.bg,
@@ -936,7 +993,7 @@ export default function DebtorsScreen() {
                 editable={!settleMutation.isPending}
               />
 
-              <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>Extra Profit (Suggested, Editable)</Text>
+              <Text style={{ color: C.text3, fontSize: 11, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>Extra Profit (Suggested, Editable)</Text>
               <TextInput
                 style={{
                   backgroundColor: C.bg,
@@ -961,7 +1018,7 @@ export default function DebtorsScreen() {
                 Amounts above the pending balance suggest extra profit automatically. You can edit the suggestion, or set payment to 0 to record profit only.
               </Text>
 
-              <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>Destination Channel (Add Float)</Text>
+              <Text style={{ color: C.text3, fontSize: 11, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>Destination Channel (Add Float)</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
                 {wallets.map((w: any) => {
                   const channel = w.channel;

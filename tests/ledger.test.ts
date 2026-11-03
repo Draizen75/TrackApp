@@ -3,7 +3,11 @@ import {
   assertValidTransactionInput,
   calculateDebtPaymentAllocation,
   calculateLedgerDebtAllocation,
+  calculateOldestUnpaidDebtDate,
+  getDebtEntryOutstanding,
+  paginateTransactionHistory,
   roundCurrency,
+  splitSettlementReceived,
   type BackupData,
   type Transaction,
 } from '@/hooks/useDbQueries';
@@ -55,9 +59,57 @@ describe('ledger safety rules', () => {
     });
   });
 
+  it('keeps selected-debt payments isolated from other debts', () => {
+    const secondDebt: Transaction = { ...debt, id: 3, amount: 50, fee: 0, created_at: '2026-01-02T00:00:00.000Z' };
+    const selectedPayment: Transaction = { ...payment, id: 4, amount: 50, fee: 0, target_debt_id: secondDebt.id, created_at: '2026-01-03T00:00:00.000Z' };
+    expect(getDebtEntryOutstanding([debt, secondDebt, selectedPayment], debt.id)).toBe(110);
+    expect(getDebtEntryOutstanding([debt, secondDebt, selectedPayment], secondDebt.id)).toBe(0);
+    expect(calculateOldestUnpaidDebtDate([debt, secondDebt, selectedPayment])).toBe(debt.created_at);
+  });
+
+  it('allocates FIFO and selected-debt payments without double-paying either debt', () => {
+    const secondDebt: Transaction = { ...debt, id: 3, amount: 50, fee: 0, created_at: '2026-01-02T00:00:00.000Z' };
+    const fifoPayment: Transaction = { ...payment, id: 4, amount: 30, fee: 0, created_at: '2026-01-03T00:00:00.000Z' };
+    const selectedPayment: Transaction = {
+      ...payment, id: 5, amount: 50, fee: 0, target_debt_id: secondDebt.id, created_at: '2026-01-04T00:00:00.000Z',
+    };
+    const transactions = [debt, secondDebt, fifoPayment, selectedPayment];
+
+    expect(getDebtEntryOutstanding(transactions, debt.id)).toBe(80);
+    expect(getDebtEntryOutstanding(transactions, secondDebt.id)).toBe(0);
+    expect(calculateDebtPaymentAllocation(transactions)).toEqual({
+      principalPaid: 70,
+      contractualEarningsPaid: 10,
+      extraProfitPaid: 0,
+      pendingPrincipal: 80,
+      pendingEarnings: 0,
+    });
+  });
+
   it('rounds new money inputs to cent precision', () => {
     expect(roundCurrency(10.005)).toBe(10.01);
     expect(roundCurrency(0.1 + 0.2)).toBe(0.3);
+  });
+
+  it('caps a selected-debt settlement while preserving excess as suggested profit', () => {
+    expect(splitSettlementReceived(60, 55)).toEqual({ principal: 55, suggestedProfit: 5 });
+    expect(splitSettlementReceived(40, 55)).toEqual({ principal: 40, suggestedProfit: 0 });
+  });
+
+  it('pages history with a stable date-and-id cursor without duplicates', () => {
+    const history = [
+      { ...debt, id: 4, amount: 40, created_at: '2026-01-03T00:00:00.000Z' },
+      { ...debt, id: 3, amount: 30, created_at: '2026-01-03T00:00:00.000Z' },
+      { ...debt, id: 2, amount: 20, created_at: '2026-01-02T00:00:00.000Z' },
+      { ...debt, id: 1, amount: 10, created_at: '2026-01-01T00:00:00.000Z' },
+    ];
+    const firstPage = paginateTransactionHistory(history, new Map([[1, 'Ana']]), { type: 'ALL' }, null, 2);
+    const secondPage = paginateTransactionHistory(history, new Map([[1, 'Ana']]), { type: 'ALL' }, firstPage.nextCursor ?? null, 2);
+
+    expect(firstPage.transactions.map((tx) => tx.id)).toEqual([4, 3]);
+    expect(secondPage.transactions.map((tx) => tx.id)).toEqual([2, 1]);
+    expect([...firstPage.transactions, ...secondPage.transactions].map((tx) => tx.id)).toEqual([4, 3, 2, 1]);
+    expect(firstPage.total).toBe(4);
   });
 
   it('rejects debt payments with no customer or that are flagged as new debt', () => {
@@ -102,6 +154,22 @@ describe('ledger safety rules', () => {
     expect(() => assertValidBackup(backup)).toThrow('exceeds the outstanding balance');
     expect(() => assertValidBackup({ ...backup, transactions: [debt], wallets: [{ channel: 'GCASH', balance: 100 }] }))
       .toThrow('missing one or more required wallets');
+  });
+
+  it('rejects a backup payment that targets a debt already settled by FIFO', () => {
+    const laterDebt: Transaction = { ...debt, id: 3, amount: 100, fee: 0, created_at: '2026-01-03T00:00:00.000Z' };
+    const backup: BackupData = {
+      schema: 'trackapp.backup', version: 1, exported_at: '2026-01-04T00:00:00.000Z',
+      customers: [{ id: 1, name: 'Ana', phone: null, created_at: debt.created_at }],
+      transactions: [
+        { ...debt },
+        { ...payment, amount: 110, fee: 0 },
+        laterDebt,
+        { ...payment, id: 4, amount: 100, fee: 0, target_debt_id: debt.id, created_at: '2026-01-04T00:00:00.000Z' },
+      ],
+      wallets, settings: {},
+    };
+    expect(() => assertValidBackup(backup)).toThrow('exceeds the outstanding balance');
   });
 
   it('rejects a backup with wrong or negative wallet balance', () => {

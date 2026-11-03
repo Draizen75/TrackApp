@@ -5,27 +5,10 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useDbQueries, Transaction, cleanErrorMessage } from '@/hooks/useDbQueries';
 import { useToast } from '@/components/toast';
 import * as Haptics from 'expo-haptics';
-import { Search, X, Trash2, Pencil, Check } from 'lucide-react-native';
+import { Search, X, Trash2, Pencil, Check, Coins, ChevronRight } from 'lucide-react-native';
+import { ledgerColors as C, ledgerRadius } from '@/theme/ledger';
 
 // ─── Warm Architectural Design Tokens ─────────────────────────────────────────
-const C = {
-  bg: '#12100e',
-  surface: '#1c1916',
-  surface2: '#221e1b',
-  border: '#2d2920',
-  borderLight: '#3a342e',
-  accent: '#e6a817',
-  accentDim: 'rgba(230,168,23,0.12)',
-  success: '#5a9b6e',
-  successDim: 'rgba(90,155,110,0.12)',
-  danger: '#dc6b5a',
-  dangerDim: 'rgba(220,107,90,0.12)',
-  warning: '#c97b2e',
-  text1: '#f0ece5',
-  text2: '#a89f95',
-  text3: '#6b6158',
-};
-
 const clearZeroIfNeeded = (value: string, setter: (value: string) => void) => {
   if (/^0(\.0+)?$/.test(value.trim())) {
     setter('');
@@ -82,12 +65,16 @@ const getWalletLabel = (channel: string) => {
 
 const TransactionCard = React.memo(function TransactionCard({
   transaction,
+  onViewDetails,
   onEdit,
   onDelete,
+  onSettleDebt,
 }: {
   transaction: Transaction;
+  onViewDetails: (transaction: Transaction) => void;
   onEdit: (transaction: Transaction) => void;
   onDelete: (id: number) => void;
+  onSettleDebt: (transaction: Transaction) => void;
 }) {
   const typeDetails = getTxTypeDetails(transaction.type);
   const formattedTime = transaction.created_at
@@ -95,10 +82,15 @@ const TransactionCard = React.memo(function TransactionCard({
     : 'N/A';
 
   return (
-    <View
+    <TouchableOpacity
+      onPress={() => onViewDetails(transaction)}
+      activeOpacity={0.8}
+      accessibilityRole="button"
+      accessibilityLabel={`View details for transaction ${transaction.id}`}
+      accessibilityHint="Opens the transaction receipt"
       style={{
-        borderRadius: 16,
-        padding: 16,
+        borderRadius: ledgerRadius.card,
+        padding: 14,
         borderWidth: 1,
         borderColor: C.border,
         backgroundColor: C.surface,
@@ -111,18 +103,18 @@ const TransactionCard = React.memo(function TransactionCard({
       <View style={{ flex: 1, marginRight: 16 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
           <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: typeDetails.bg, borderWidth: 1, borderColor: typeDetails.border }}>
-            <Text style={{ fontSize: 8, fontWeight: '900', textTransform: 'uppercase', color: typeDetails.text }}>
+            <Text style={{ fontSize: 10, fontWeight: '900', textTransform: 'uppercase', color: typeDetails.text }}>
               {typeDetails.label}
             </Text>
           </View>
           {transaction.is_debt === 1 && (
             <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: C.dangerDim, borderWidth: 1, borderColor: 'rgba(220,107,90,0.2)' }}>
-              <Text style={{ fontSize: 8, fontWeight: '900', textTransform: 'uppercase', color: C.danger }}>
+              <Text style={{ fontSize: 10, fontWeight: '900', textTransform: 'uppercase', color: C.danger }}>
                 UTANG
               </Text>
             </View>
           )}
-          <Text style={{ color: C.text3, fontSize: 9 }}>{formattedTime}</Text>
+          <Text style={{ color: C.text3, fontSize: 11 }}>{formattedTime}</Text>
         </View>
 
         <Text style={{ color: C.text1, fontSize: 14, fontWeight: '700', marginBottom: 4 }} numberOfLines={1}>
@@ -135,30 +127,50 @@ const TransactionCard = React.memo(function TransactionCard({
       </View>
 
       <View style={{ alignItems: 'flex-end' }}>
-        <Text style={{ color: C.text1, fontSize: 14, fontWeight: '900', marginBottom: 2 }}>
-          ₱{transaction.amount.toFixed(2)}
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, marginBottom: 2 }}>
+          <Text style={{ color: C.text1, fontSize: 14, fontWeight: '900' }}>
+            ₱{transaction.amount.toFixed(2)}
+          </Text>
+          <ChevronRight size={14} color={C.text3} />
+        </View>
         {transaction.fee > 0 && (
           <Text style={{ color: C.accent, fontSize: 10, fontWeight: '700', marginBottom: 8 }}>
             Fee: +₱{transaction.fee.toFixed(2)}
           </Text>
         )}
         <View style={{ flexDirection: 'row', gap: 6 }}>
+          {transaction.is_debt === 1 && transaction.customer_id != null && (
+            <TouchableOpacity
+              onPress={() => onSettleDebt(transaction)}
+              accessibilityRole="button"
+              accessibilityLabel="Settle selected debt"
+              hitSlop={8}
+              style={{ width: 32, height: 32, justifyContent: 'center', alignItems: 'center' }}
+            >
+              <Coins size={14} color={C.success} />
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             onPress={() => onEdit(transaction)}
-            style={{ padding: 6, backgroundColor: C.surface2, borderRadius: 8, borderWidth: 1, borderColor: C.border }}
+            accessibilityRole="button"
+            accessibilityLabel="Edit transaction"
+            hitSlop={8}
+            style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}
           >
             <Pencil size={13} color={C.accent} />
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => onDelete(transaction.id)}
-            style={{ padding: 6, backgroundColor: C.surface2, borderRadius: 8, borderWidth: 1, borderColor: C.border }}
+            accessibilityRole="button"
+            accessibilityLabel="Delete transaction"
+            hitSlop={8}
+            style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}
           >
             <Trash2 size={13} color={C.text3} />
           </TouchableOpacity>
         </View>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 });
 
@@ -167,7 +179,8 @@ export default function HistoryScreen() {
   const router = useRouter();
   const { editTxId } = useLocalSearchParams<{ editTxId?: string }>();
   const { 
-    useTransactions, 
+    useTransactionHistory,
+    useTransactionById,
     useDeleteTransaction, 
     useUpdateTransaction,
     useCustomers,
@@ -175,7 +188,6 @@ export default function HistoryScreen() {
     useWallets
   } = useDbQueries();
   
-  const { data: transactions = [], isLoading, refetch: refetchTransactions } = useTransactions();
   const { data: customers = [], refetch: refetchCustomers } = useCustomers();
   const { data: wallets = [] } = useWallets();
   
@@ -187,10 +199,19 @@ export default function HistoryScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const debouncedSearchQuery = useDebouncedValue(searchQuery);
   const [selectedFilter, setSelectedFilter] = useState<FilterType>('ALL');
+  const historyQuery = useTransactionHistory({ type: selectedFilter, search: debouncedSearchQuery });
+  const historyTransactions = useMemo(
+    () => historyQuery.data?.pages.flatMap((page) => page.transactions) ?? [],
+    [historyQuery.data]
+  );
+  const totalHistoryTransactions = historyQuery.data?.pages[0]?.total ?? 0;
+  const requestedEditTxId = editTxId ? Number(editTxId) : undefined;
+  const { data: requestedEditTx } = useTransactionById(requestedEditTxId);
 
   // Edit modal states
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
+  const [detailTx, setDetailTx] = useState<Transaction | null>(null);
   const [editAmount, setEditAmount] = useState('');
   const [editFee, setEditFee] = useState('');
   const [editChannel, setEditChannel] = useState<string>('GCASH');
@@ -253,9 +274,19 @@ export default function HistoryScreen() {
     setEditModalVisible(true);
   }, []);
 
+  const handleOpenTransactionDetails = useCallback((tx: Transaction) => {
+    setDetailTx(tx);
+  }, []);
+
+  const handleEditFromDetails = useCallback(() => {
+    if (!detailTx) return;
+    setDetailTx(null);
+    handleOpenEditModal(detailTx);
+  }, [detailTx, handleOpenEditModal]);
+
   useEffect(() => {
-    if (editTxId && transactions.length > 0) {
-      const tx = transactions.find(t => t.id === parseInt(editTxId));
+    if (editTxId && requestedEditTx) {
+      const tx = requestedEditTx;
       if (tx) {
         setTimeout(() => {
           handleOpenEditModal(tx);
@@ -264,7 +295,7 @@ export default function HistoryScreen() {
         router.setParams({ editTxId: undefined });
       }
     }
-  }, [editTxId, transactions, router, handleOpenEditModal]);
+  }, [editTxId, requestedEditTx, router, handleOpenEditModal]);
 
   const selectCustomer = (id: number, name: string) => {
     setSelectedCustomerId(id);
@@ -276,22 +307,6 @@ export default function HistoryScreen() {
   const filteredCustomers = customers.filter((c: any) => 
     c.name.toLowerCase().includes(customerSearchQuery.toLowerCase())
   );
-
-  const getOutstandingDebtExcludingTransaction = (customerId: number, excludedTxId: number) => {
-    return transactions.reduce((sum, tx) => {
-      if (tx.customer_id !== customerId || tx.id === excludedTxId) {
-        return sum;
-      }
-      if (tx.is_debt === 1) {
-        const fee = tx.deduct_fee === 1 ? 0 : (Number(tx.fee) || 0);
-        return sum + (Number(tx.amount) || 0) + fee;
-      }
-      if (tx.type === 'DEBT_PAYMENT') {
-        return sum - (Number(tx.amount) || 0);
-      }
-      return sum;
-    }, 0);
-  };
 
   const handleSaveChanges = async () => {
     if (!selectedTx || isSaving) return;
@@ -350,18 +365,6 @@ export default function HistoryScreen() {
         finalCustomerId = null;
       }
 
-      if (selectedTx.type === 'DEBT_PAYMENT' && finalCustomerId) {
-        const maxEditablePayment = getOutstandingDebtExcludingTransaction(finalCustomerId, selectedTx.id);
-        if (parsedAmount - maxEditablePayment > 0.01) {
-          Alert.alert(
-            "Invalid Amount",
-            `This payment cannot exceed the debtor's remaining balance of PHP ${maxEditablePayment.toFixed(2)} before this payment is applied.`
-          );
-          setIsSaving(false);
-          return;
-        }
-      }
-
       await updateTransactionMutation.mutateAsync({
         id: selectedTx.id,
         type: selectedTx.type,
@@ -375,7 +378,6 @@ export default function HistoryScreen() {
 
       setEditModalVisible(false);
       setSelectedTx(null);
-      refetchTransactions();
       showToast("Transaction updated successfully.", "success");
     } catch (e: any) {
       Alert.alert("Error", cleanErrorMessage(e));
@@ -384,27 +386,9 @@ export default function HistoryScreen() {
     }
   };
 
-  // Filter and search logic
-  const filteredTransactions = useMemo(() => {
-    return transactions.filter((tx: any) => {
-      if (selectedFilter !== 'ALL' && tx.type !== selectedFilter) {
-        return false;
-      }
-      if (debouncedSearchQuery.trim().length > 0) {
-        const query = debouncedSearchQuery.toLowerCase();
-        const custName = (tx.customer_name || 'anonymous transaction').toLowerCase();
-        const channel = (tx.channel || '').toLowerCase();
-        const amtStr = (tx.amount || '').toString();
-        
-        return custName.includes(query) || channel.includes(query) || amtStr.includes(query);
-      }
-      return true;
-    });
-  }, [transactions, debouncedSearchQuery, selectedFilter]);
-
   const renderTransaction = useCallback<ListRenderItem<Transaction>>(
-    ({ item }) => <TransactionCard transaction={item} onEdit={handleOpenEditModal} onDelete={handleDelete} />,
-    [handleDelete, handleOpenEditModal]
+    ({ item }) => <TransactionCard transaction={item} onViewDetails={handleOpenTransactionDetails} onEdit={handleOpenEditModal} onDelete={handleDelete} onSettleDebt={(transaction) => router.push({ pathname: '/debtors', params: { settleDebtId: transaction.id.toString() } })} />,
+    [handleDelete, handleOpenEditModal, handleOpenTransactionDetails, router]
   );
 
   return (
@@ -418,7 +402,7 @@ export default function HistoryScreen() {
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 }}>
             <Text style={{ flexShrink: 1, color: C.text1, fontSize: 24, fontWeight: '800' }}>Transaction History</Text>
             <View style={{ flexShrink: 0, marginLeft: 8, backgroundColor: C.accentDim, borderWidth: 1, borderColor: C.borderLight, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 5 }}>
-              <Text style={{ color: C.accent, fontSize: 10, fontWeight: '800' }}>Total Records: {transactions.length}</Text>
+              <Text style={{ color: C.accent, fontSize: 10, fontWeight: '800' }}>Total Records: {totalHistoryTransactions}</Text>
             </View>
           </View>
         </View>
@@ -434,7 +418,7 @@ export default function HistoryScreen() {
             onChangeText={setSearchQuery}
           />
           {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
+            <TouchableOpacity onPress={() => setSearchQuery('')} accessibilityRole="button" accessibilityLabel="Clear transaction search" hitSlop={10}>
               <X size={16} color={C.text3} />
             </TouchableOpacity>
           )}
@@ -481,30 +465,43 @@ export default function HistoryScreen() {
         </View>
 
         <Text style={{ color: C.text3, fontSize: 11, fontWeight: '600', marginBottom: 10 }}>
-          Showing {filteredTransactions.length} of {transactions.length} transactions
+          Showing {historyTransactions.length} of {totalHistoryTransactions} transactions
         </Text>
 
         {/* List Content */}
-        {isLoading ? (
+        {historyQuery.isLoading ? (
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
             <Text style={{ color: C.text3, fontSize: 13 }}>Loading transaction records...</Text>
           </View>
         ) : (
           <FlatList
-            data={filteredTransactions}
+            data={historyTransactions}
             renderItem={renderTransaction}
             keyExtractor={(transaction) => transaction.id.toString()}
             initialNumToRender={10}
             maxToRenderPerBatch={10}
             windowSize={5}
+            onEndReached={() => {
+              if (historyQuery.hasNextPage && !historyQuery.isFetchingNextPage) {
+                historyQuery.fetchNextPage();
+              }
+            }}
+            onEndReachedThreshold={0.4}
             style={{ flex: 1 }} 
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: 110 }}
+            contentContainerStyle={{ paddingBottom: 160 }}
             ListEmptyComponent={
               <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40 }}>
                 <Text style={{ color: C.text2, fontSize: 14, fontWeight: '700', marginBottom: 4 }}>No transaction records found</Text>
                 <Text style={{ color: C.text3, fontSize: 12, textAlign: 'center', paddingHorizontal: 32 }}>Try adjusting your filters or search terms</Text>
               </View>
+            }
+            ListFooterComponent={
+              historyQuery.isFetchingNextPage ? (
+                <Text style={{ color: C.text3, fontSize: 12, textAlign: 'center', paddingVertical: 16 }}>Loading more transactions...</Text>
+              ) : historyTransactions.length > 0 && !historyQuery.hasNextPage ? (
+                <Text style={{ color: C.text3, fontSize: 11, textAlign: 'center', paddingVertical: 16 }}>All transactions loaded</Text>
+              ) : null
             }
           >
             {/* Previous eager mapping retained only as a disabled reference while the FlatList owns rendering. */}
@@ -596,6 +593,79 @@ export default function HistoryScreen() {
 
       <Modal
         animationType="slide"
+        transparent={false}
+        visible={detailTx !== null}
+        onRequestClose={() => setDetailTx(null)}
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }} edges={['top', 'bottom']}>
+          {detailTx && (() => {
+            const typeDetails = getTxTypeDetails(detailTx.type);
+            const isDebtPayment = detailTx.type === 'DEBT_PAYMENT';
+            const formattedDate = detailTx.created_at ? transactionDateFormatter.format(new Date(detailTx.created_at)) : 'N/A';
+            const feeLabel = isDebtPayment ? 'Profit / Interest' : 'Service Fee';
+
+            return (
+              <View style={{ flex: 1, padding: 20, paddingBottom: 16 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+                  <View>
+                    <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase' }}>Transaction Details</Text>
+                    <Text style={{ color: C.text1, fontSize: 20, fontWeight: '800', marginTop: 2 }}>Record #{detailTx.id}</Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => setDetailTx(null)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Close transaction details"
+                    hitSlop={10}
+                    style={{ width: 44, height: 44, backgroundColor: C.surface2, borderRadius: 22, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    <X size={18} color={C.text2} />
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView contentContainerStyle={{ paddingBottom: 24 }} showsVerticalScrollIndicator={false}>
+                  <View style={{ backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: ledgerRadius.card, padding: 20, marginBottom: 20 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 18 }}>
+                      <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: typeDetails.bg, borderWidth: 1, borderColor: typeDetails.border }}>
+                        <Text style={{ color: typeDetails.text, fontSize: 10, fontWeight: '900', textTransform: 'uppercase' }}>{typeDetails.label}</Text>
+                      </View>
+                      {detailTx.is_debt === 1 && <Text style={{ color: C.danger, fontSize: 10, fontWeight: '800' }}>UTANG</Text>}
+                    </View>
+                    <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>{isDebtPayment ? 'Principal Payment' : 'Transaction Amount'}</Text>
+                    <Text style={{ color: C.text1, fontSize: 32, fontWeight: '900', marginTop: 4 }}>₱{detailTx.amount.toFixed(2)}</Text>
+                    {detailTx.fee > 0 && <Text style={{ color: C.accent, fontSize: 13, fontWeight: '700', marginTop: 6 }}>{feeLabel}: ₱{detailTx.fee.toFixed(2)}</Text>}
+                  </View>
+
+                  <View style={{ backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: ledgerRadius.card, overflow: 'hidden' }}>
+                    {[
+                      ['Customer', detailTx.customer_name || 'Sari-Sari Anonymous'],
+                      ['Wallet', getWalletLabel(detailTx.channel)],
+                      ['Date & Time', formattedDate],
+                      ['Fee Handling', detailTx.deduct_fee === 1 ? 'Deducted from principal' : 'Charged separately'],
+                    ].map(([label, value], index, rows) => (
+                      <View key={label} style={{ padding: 16, borderBottomWidth: index === rows.length - 1 ? 0 : 1, borderBottomColor: C.border }}>
+                        <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>{label}</Text>
+                        <Text style={{ color: C.text1, fontSize: 14, fontWeight: '700', marginTop: 4 }}>{value}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </ScrollView>
+
+                <TouchableOpacity
+                  onPress={handleEditFromDetails}
+                  accessibilityRole="button"
+                  accessibilityLabel="Edit this transaction"
+                  style={{ minHeight: 48, borderRadius: 16, borderWidth: 1, borderColor: C.accent, backgroundColor: C.accentDim, alignItems: 'center', justifyContent: 'center', marginTop: 12 }}
+                >
+                  <Text style={{ color: C.accent, fontSize: 12, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase' }}>Edit Transaction</Text>
+                </TouchableOpacity>
+              </View>
+            );
+          })()}
+        </SafeAreaView>
+      </Modal>
+
+      <Modal
+        animationType="slide"
         transparent={true}
         visible={editModalVisible}
         onRequestClose={() => setEditModalVisible(false)}
@@ -612,6 +682,9 @@ export default function HistoryScreen() {
               </View>
               <TouchableOpacity 
                 onPress={() => setEditModalVisible(false)} 
+                accessibilityRole="button"
+                accessibilityLabel="Close transaction editor"
+                hitSlop={10}
                 style={{ padding: 8, backgroundColor: C.surface2, borderRadius: 20, borderWidth: 1, borderColor: C.border }}
               >
                 <X size={18} color={C.text2} />
@@ -622,7 +695,7 @@ export default function HistoryScreen() {
               {/* Amount and Fee Row */}
               <View style={{ flexDirection: 'row', gap: 16 }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>{selectedTx?.type === 'DEBT_PAYMENT' ? 'Principal Payment (PHP)' : 'Amount (PHP)'}</Text>
+                  <Text style={{ color: C.text3, fontSize: 11, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>{selectedTx?.type === 'DEBT_PAYMENT' ? 'Principal Payment (PHP)' : 'Amount (PHP)'}</Text>
                   <TextInput
                     style={{
                       backgroundColor: C.bg,
@@ -642,7 +715,7 @@ export default function HistoryScreen() {
                   />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>{selectedTx?.type === 'DEBT_PAYMENT' ? 'Extra Profit / Interest (PHP)' : 'Fee (PHP)'}</Text>
+                  <Text style={{ color: C.text3, fontSize: 11, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>{selectedTx?.type === 'DEBT_PAYMENT' ? 'Extra Profit / Interest (PHP)' : 'Fee (PHP)'}</Text>
                   <TextInput
                     style={{
                       backgroundColor: C.bg,
@@ -667,7 +740,7 @@ export default function HistoryScreen() {
               {/* Destination Channel Selector */}
               {selectedTx?.type !== 'DEBT_PAYMENT' && (
                 <View>
-                  <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>Wallet Channel</Text>
+                  <Text style={{ color: C.text3, fontSize: 11, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>Wallet Channel</Text>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                     {wallets.filter((w: any) => w.channel !== 'PHYSICAL_CASH').map((w: any) => {
                       const channel = w.channel;
@@ -739,7 +812,7 @@ export default function HistoryScreen() {
               {/* Conditional Debtor Name Selector */}
               {editIsDebt && (
                 <View style={{ position: 'relative' }}>
-                  <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>Debtor Name</Text>
+                  <Text style={{ color: C.text3, fontSize: 11, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>Debtor Name</Text>
                   <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 4 }}>
                     <Search size={14} color={C.text3} style={{ marginRight: 8 }} />
                     <TextInput

@@ -142,6 +142,7 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
       fee REAL NOT NULL,
       channel TEXT NOT NULL, -- 'GCASH', 'MAYA', 'MAYA_BUSINESS', 'MARIBANK', 'PHYSICAL_CASH'
       customer_id INTEGER,
+      target_debt_id INTEGER,
       is_debt INTEGER NOT NULL DEFAULT 0, -- 0 = False, 1 = True
       created_at TEXT NOT NULL,
       FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL
@@ -167,6 +168,9 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
     // Column already exists
   }
   try {
+    await db.execAsync('ALTER TABLE transactions ADD COLUMN target_debt_id INTEGER;');
+  } catch { }
+  try {
     await db.execAsync("ALTER TABLE customers ADD COLUMN notes TEXT;");
   } catch { }
   try {
@@ -176,6 +180,17 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
     await db.execAsync("ALTER TABLE customers ADD COLUMN last_reminded_at TEXT;");
   } catch { }
 
+  // Match the ledger's hot paths: history, debtor allocation, selected-debt
+  // safeguards, and dashboard date-range queries.
+  await db.execAsync(`
+    CREATE INDEX IF NOT EXISTS idx_transactions_created_at
+      ON transactions(created_at DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_transactions_customer_created_at
+      ON transactions(customer_id, created_at ASC, id ASC);
+    CREATE INDEX IF NOT EXISTS idx_transactions_target_debt
+      ON transactions(target_debt_id)
+      WHERE target_debt_id IS NOT NULL;
+  `);
 
   // Drop old triggers to redefine them
   await db.execAsync(`
@@ -183,6 +198,7 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
     DROP TRIGGER IF EXISTS tr_transaction_delete;
     DROP TRIGGER IF EXISTS tr_transaction_validate_insert;
     DROP TRIGGER IF EXISTS tr_transaction_validate_update;
+    DROP TRIGGER IF EXISTS tr_transaction_validate_delete;
     DROP TRIGGER IF EXISTS tr_customer_delete_with_balance_guard;
     DROP TRIGGER IF EXISTS tr_transaction_update;
     DROP TRIGGER IF EXISTS tr_wallet_balance_guard;
@@ -213,6 +229,30 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
         THEN RAISE(ABORT, 'Selected wallet does not exist.') END;
       SELECT CASE WHEN NEW.customer_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM customers WHERE id = NEW.customer_id)
         THEN RAISE(ABORT, 'Selected debtor does not exist.') END;
+      SELECT CASE WHEN NEW.target_debt_id IS NOT NULL AND (NEW.type != 'DEBT_PAYMENT' OR NOT EXISTS (
+        SELECT 1 FROM transactions WHERE id = NEW.target_debt_id AND customer_id = NEW.customer_id AND is_debt = 1
+      )) THEN RAISE(ABORT, 'Selected debt does not exist for this debtor.') END;
+      SELECT CASE WHEN NEW.target_debt_id IS NOT NULL AND NEW.amount > (
+        WITH debt_remaining AS (
+          SELECT debt.id, debt.created_at,
+            debt.amount + CASE WHEN debt.deduct_fee = 1 THEN 0 ELSE debt.fee END - COALESCE((
+              SELECT SUM(payment.amount) FROM transactions payment WHERE payment.target_debt_id = debt.id
+            ), 0) AS remaining
+          FROM transactions debt
+          WHERE debt.customer_id = NEW.customer_id AND debt.is_debt = 1
+        ), target AS (
+          SELECT id, created_at, remaining FROM debt_remaining WHERE id = NEW.target_debt_id
+        ), fifo_total AS (
+          SELECT COALESCE(SUM(amount), 0) AS amount FROM transactions
+          WHERE customer_id = NEW.customer_id AND type = 'DEBT_PAYMENT' AND target_debt_id IS NULL
+        )
+        SELECT CASE
+          WHEN target.remaining <= 0 THEN 0
+          WHEN fifo_total.amount <= COALESCE((SELECT SUM(CASE WHEN prior.remaining > 0 THEN prior.remaining ELSE 0 END) FROM debt_remaining prior WHERE prior.created_at < target.created_at OR (prior.created_at = target.created_at AND prior.id < target.id)), 0) THEN target.remaining
+          WHEN fifo_total.amount >= COALESCE((SELECT SUM(CASE WHEN prior.remaining > 0 THEN prior.remaining ELSE 0 END) FROM debt_remaining prior WHERE prior.created_at < target.created_at OR (prior.created_at = target.created_at AND prior.id < target.id)), 0) + target.remaining THEN 0
+          ELSE target.remaining - (fifo_total.amount - COALESCE((SELECT SUM(CASE WHEN prior.remaining > 0 THEN prior.remaining ELSE 0 END) FROM debt_remaining prior WHERE prior.created_at < target.created_at OR (prior.created_at = target.created_at AND prior.id < target.id)), 0))
+        END FROM target CROSS JOIN fifo_total
+      ) + 0.01 THEN RAISE(ABORT, 'Debt payment cannot exceed the selected debt balance.') END;
       SELECT CASE WHEN NEW.type = 'DEBT_PAYMENT' AND NEW.amount > (
         SELECT COALESCE(SUM(CASE WHEN is_debt = 1 THEN amount + CASE WHEN deduct_fee = 1 THEN 0 ELSE fee END ELSE 0 END), 0) -
                COALESCE(SUM(CASE WHEN type = 'DEBT_PAYMENT' THEN amount ELSE 0 END), 0)
@@ -238,11 +278,47 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
         THEN RAISE(ABORT, 'Selected wallet does not exist.') END;
       SELECT CASE WHEN NEW.customer_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM customers WHERE id = NEW.customer_id)
         THEN RAISE(ABORT, 'Selected debtor does not exist.') END;
+      SELECT CASE WHEN NEW.target_debt_id IS NOT NULL AND (NEW.type != 'DEBT_PAYMENT' OR NOT EXISTS (
+        SELECT 1 FROM transactions WHERE id = NEW.target_debt_id AND customer_id = NEW.customer_id AND is_debt = 1
+      )) THEN RAISE(ABORT, 'Selected debt does not exist for this debtor.') END;
+      SELECT CASE WHEN NEW.target_debt_id IS NOT NULL AND NEW.amount > (
+        WITH debt_remaining AS (
+          SELECT debt.id, debt.created_at,
+            debt.amount + CASE WHEN debt.deduct_fee = 1 THEN 0 ELSE debt.fee END - COALESCE((
+              SELECT SUM(payment.amount) FROM transactions payment WHERE payment.target_debt_id = debt.id AND payment.id != OLD.id
+            ), 0) AS remaining
+          FROM transactions debt
+          WHERE debt.customer_id = NEW.customer_id AND debt.is_debt = 1
+        ), target AS (
+          SELECT id, created_at, remaining FROM debt_remaining WHERE id = NEW.target_debt_id
+        ), fifo_total AS (
+          SELECT COALESCE(SUM(amount), 0) AS amount FROM transactions
+          WHERE customer_id = NEW.customer_id AND type = 'DEBT_PAYMENT' AND target_debt_id IS NULL AND id != OLD.id
+        )
+        SELECT CASE
+          WHEN target.remaining <= 0 THEN 0
+          WHEN fifo_total.amount <= COALESCE((SELECT SUM(CASE WHEN prior.remaining > 0 THEN prior.remaining ELSE 0 END) FROM debt_remaining prior WHERE prior.created_at < target.created_at OR (prior.created_at = target.created_at AND prior.id < target.id)), 0) THEN target.remaining
+          WHEN fifo_total.amount >= COALESCE((SELECT SUM(CASE WHEN prior.remaining > 0 THEN prior.remaining ELSE 0 END) FROM debt_remaining prior WHERE prior.created_at < target.created_at OR (prior.created_at = target.created_at AND prior.id < target.id)), 0) + target.remaining THEN 0
+          ELSE target.remaining - (fifo_total.amount - COALESCE((SELECT SUM(CASE WHEN prior.remaining > 0 THEN prior.remaining ELSE 0 END) FROM debt_remaining prior WHERE prior.created_at < target.created_at OR (prior.created_at = target.created_at AND prior.id < target.id)), 0))
+        END FROM target CROSS JOIN fifo_total
+      ) + 0.01 THEN RAISE(ABORT, 'Debt payment cannot exceed the selected debt balance.') END;
+      SELECT CASE WHEN OLD.is_debt = 1 AND EXISTS (SELECT 1 FROM transactions WHERE target_debt_id = OLD.id) AND (
+        NEW.is_debt != 1 OR NEW.customer_id IS NOT OLD.customer_id OR NEW.amount != OLD.amount OR
+        NEW.fee != OLD.fee OR NEW.deduct_fee != OLD.deduct_fee
+      ) THEN RAISE(ABORT, 'Cannot modify a debt with targeted payments. Delete its targeted payments first.') END;
       SELECT CASE WHEN NEW.type = 'DEBT_PAYMENT' AND NEW.amount > (
         SELECT COALESCE(SUM(CASE WHEN is_debt = 1 THEN amount + CASE WHEN deduct_fee = 1 THEN 0 ELSE fee END ELSE 0 END), 0) -
                COALESCE(SUM(CASE WHEN type = 'DEBT_PAYMENT' THEN amount ELSE 0 END), 0)
         FROM transactions WHERE customer_id = NEW.customer_id AND id != OLD.id
       ) + 0.01 THEN RAISE(ABORT, 'Debt payment cannot exceed the outstanding balance.') END;
+    END;
+
+    CREATE TRIGGER tr_transaction_validate_delete
+    BEFORE DELETE ON transactions
+    FOR EACH ROW
+    WHEN OLD.is_debt = 1 AND EXISTS (SELECT 1 FROM transactions WHERE target_debt_id = OLD.id)
+    BEGIN
+      SELECT RAISE(ABORT, 'Cannot delete a debt with targeted payments. Delete its targeted payments first.');
     END;
 
     CREATE TRIGGER tr_customer_delete_with_balance_guard

@@ -1,5 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { migrateDbIfNeeded } from '@/db/db';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSQLiteContext } from 'expo-sqlite';
 
 export function cleanErrorMessage(error: any): string {
@@ -41,7 +41,54 @@ export interface Transaction {
   customer_name?: string | null;
   is_debt: number;
   deduct_fee: number;
+  target_debt_id?: number | null;
   created_at: string;
+}
+
+export type TransactionHistoryFilters = {
+  type?: Transaction['type'] | 'ALL';
+  search?: string;
+};
+
+type TransactionHistoryCursor = { createdAt: string; id: number };
+type TransactionHistoryPage = {
+  transactions: Transaction[];
+  total: number;
+  nextCursor?: TransactionHistoryCursor;
+};
+
+const HISTORY_PAGE_SIZE = 50;
+
+export function paginateTransactionHistory(
+  transactions: Transaction[],
+  customerNamesById: Map<number, string>,
+  filters: TransactionHistoryFilters,
+  cursor: TransactionHistoryCursor | null,
+  pageSize = HISTORY_PAGE_SIZE,
+): TransactionHistoryPage {
+  const type = filters.type && filters.type !== 'ALL' ? filters.type : null;
+  const search = filters.search?.trim().toLowerCase() || '';
+  const matching = transactions
+    .map((tx) => ({ ...tx, customer_name: tx.customer_id == null ? null : customerNamesById.get(tx.customer_id) || null }))
+    .filter((tx) => {
+      if (type && tx.type !== type) return false;
+      if (!search) return true;
+      return (tx.customer_name || 'anonymous transaction').toLowerCase().includes(search) ||
+        (tx.channel || '').toLowerCase().includes(search) ||
+        String(tx.amount ?? '').includes(search);
+    })
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime() || b.id - a.id);
+  const afterCursor = cursor
+    ? matching.filter((tx) => tx.created_at < cursor.createdAt || (tx.created_at === cursor.createdAt && tx.id < cursor.id))
+    : matching;
+  const pageWithLookahead = afterCursor.slice(0, pageSize + 1);
+  const page = pageWithLookahead.slice(0, pageSize);
+  const last = page.at(-1);
+  return {
+    transactions: page,
+    total: matching.length,
+    nextCursor: pageWithLookahead.length > pageSize && last ? { createdAt: last.created_at, id: last.id } : undefined,
+  };
 }
 
 export interface Wallet {
@@ -112,6 +159,15 @@ const requiredWalletChannels = ['GCASH', 'MAYA', 'MAYA_BUSINESS', 'MARIBANK', 'P
 
 export const roundCurrency = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
+export function splitSettlementReceived(received: number, principalCap: number) {
+  const safeReceived = Math.max(0, received);
+  const safePrincipalCap = Math.max(0, principalCap);
+  return {
+    principal: Math.min(safeReceived, safePrincipalCap),
+    suggestedProfit: Math.max(0, safeReceived - safePrincipalCap),
+  };
+}
+
 export function assertValidTransactionInput(tx: {
   type: Transaction['type']; amount: number; fee: number; channel: string;
   customer_id: number | null; is_debt: boolean; deduct_fee?: boolean;
@@ -175,7 +231,8 @@ export function assertValidBackup(backup: BackupData) {
   for (const tx of backup.transactions) {
     if (!Number.isSafeInteger(tx.id) || tx.id <= 0 || transactionIds.has(tx.id) ||
       !walletChannels.has(String(tx.channel || '').trim()) ||
-      (tx.customer_id != null && !customerIds.has(Number(tx.customer_id)))) {
+      (tx.customer_id != null && !customerIds.has(Number(tx.customer_id))) ||
+      (tx.target_debt_id != null && (!Number.isSafeInteger(tx.target_debt_id) || tx.target_debt_id <= 0))) {
       throw new Error('Backup contains an invalid transaction reference.');
     }
     if (tx.is_debt !== 0 && tx.is_debt !== 1 && typeof tx.is_debt !== 'boolean') {
@@ -192,21 +249,32 @@ export function assertValidBackup(backup: BackupData) {
     transactionIds.add(tx.id);
   }
   const balances = new Map<number, number>();
+  const transactionsByCustomer = new Map<number, Transaction[]>();
   for (const tx of [...backup.transactions].sort(
     (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime() || a.id - b.id
   )) {
     const timestamp = new Date(tx.created_at).getTime();
     if (!Number.isFinite(timestamp)) throw new Error('Backup contains an invalid transaction date.');
     const customerId = tx.customer_id == null ? null : Number(tx.customer_id);
+    const customerTransactions = customerId == null ? [] : (transactionsByCustomer.get(customerId) || []);
     if (Number(tx.is_debt) === 1 && customerId != null) {
       const debt = Number(tx.amount) + (Number(tx.deduct_fee) === 1 ? 0 : Number(tx.fee));
       balances.set(customerId, (balances.get(customerId) || 0) + debt);
     } else if (tx.type === 'DEBT_PAYMENT' && customerId != null) {
-      const outstanding = balances.get(customerId) || 0;
+      if (tx.target_debt_id != null && !customerTransactions.some(debt => debt.id === tx.target_debt_id && debt.is_debt === 1)) {
+        throw new Error('Backup contains an invalid transaction reference.');
+      }
+      const outstanding = tx.target_debt_id == null
+        ? balances.get(customerId) || 0
+        : getDebtEntryOutstanding(customerTransactions, tx.target_debt_id);
       if (Number(tx.amount) - outstanding > 0.01) {
         throw new Error('Backup contains a debt payment that exceeds the outstanding balance.');
       }
-      balances.set(customerId, outstanding - Number(tx.amount));
+      const totalOutstanding = balances.get(customerId) || 0;
+      balances.set(customerId, totalOutstanding - Number(tx.amount));
+    }
+    if (customerId != null) {
+      transactionsByCustomer.set(customerId, [...customerTransactions, tx]);
     }
   }
 }
@@ -221,29 +289,11 @@ export function assertValidBackup(backup: BackupData) {
 export function calculateOldestUnpaidDebtDate(customerTransactions: Transaction[]): string | null {
   if (!customerTransactions || customerTransactions.length === 0) return null;
   const sorted = [...customerTransactions].sort(
-    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime() || a.id - b.id
   );
-
-  let totalPayments = sorted.reduce((sum, tx) => {
-    if (tx.type === 'DEBT_PAYMENT') {
-      return sum + (Number(tx.amount) || 0);
-    }
-    return sum;
-  }, 0);
-
-  const debtTxs = sorted.filter((tx) => tx.is_debt === 1);
-
-  for (const tx of debtTxs) {
-    const fee = tx.deduct_fee === 1 ? 0 : (Number(tx.fee) || 0);
-    const debtAmount = (Number(tx.amount) || 0) + fee;
-
-    if (totalPayments >= debtAmount - 0.001) {
-      totalPayments -= debtAmount;
-    } else {
-      return tx.created_at;
-    }
+  for (const debt of sorted.filter(tx => tx.is_debt === 1)) {
+    if (getDebtEntryOutstanding(sorted, debt.id) > 0.001) return debt.created_at;
   }
-
   return null;
 }
 
@@ -267,7 +317,7 @@ export function calculateDebtPaymentAllocation(customerTransactions: Transaction
     pendingPrincipal: 0,
     pendingEarnings: 0,
   };
-  const debts: { principal: number; earnings: number }[] = [];
+  const debts: { id: number; principal: number; earnings: number }[] = [];
   const sorted = [...customerTransactions].sort(
     (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime() || a.id - b.id
   );
@@ -275,6 +325,7 @@ export function calculateDebtPaymentAllocation(customerTransactions: Transaction
   for (const transaction of sorted) {
     if (transaction.is_debt === 1) {
       debts.push({
+        id: transaction.id,
         principal: Number(transaction.amount) || 0,
         earnings: transaction.deduct_fee === 1 ? 0 : (Number(transaction.fee) || 0),
       });
@@ -284,7 +335,8 @@ export function calculateDebtPaymentAllocation(customerTransactions: Transaction
 
     result.extraProfitPaid += Number(transaction.fee) || 0;
     let remainingPayment = Number(transaction.amount) || 0;
-    for (const debt of debts) {
+    const paymentTarget = transaction.target_debt_id == null ? debts : debts.filter(debt => debt.id === transaction.target_debt_id);
+    for (const debt of paymentTarget) {
       if (remainingPayment <= 0) break;
       const earningsApplied = Math.min(remainingPayment, debt.earnings);
       debt.earnings -= earningsApplied;
@@ -303,6 +355,32 @@ export function calculateDebtPaymentAllocation(customerTransactions: Transaction
     result.pendingEarnings += debt.earnings;
   }
   return result;
+}
+
+/** Remaining amount owed by a selected debt entry, including its fee when applicable. */
+export function getDebtEntryOutstanding(customerTransactions: Transaction[], debtId: number) {
+  const debts: { id: number; principal: number; earnings: number }[] = [];
+  const sorted = [...customerTransactions].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime() || a.id - b.id);
+  for (const tx of sorted) {
+    if (tx.is_debt === 1) {
+      debts.push({ id: tx.id, principal: Number(tx.amount) || 0, earnings: tx.deduct_fee === 1 ? 0 : (Number(tx.fee) || 0) });
+      continue;
+    }
+    if (tx.type !== 'DEBT_PAYMENT') continue;
+    let remaining = Number(tx.amount) || 0;
+    const targets = tx.target_debt_id == null ? debts : debts.filter(debt => debt.id === tx.target_debt_id);
+    for (const debt of targets) {
+      const earnings = Math.min(remaining, debt.earnings);
+      debt.earnings -= earnings;
+      remaining -= earnings;
+      const principal = Math.min(remaining, debt.principal);
+      debt.principal -= principal;
+      remaining -= principal;
+      if (remaining <= 0) break;
+    }
+  }
+  const debt = debts.find(item => item.id === debtId);
+  return debt ? Math.max(0, debt.principal + debt.earnings) : 0;
 }
 
 /**
@@ -398,6 +476,18 @@ const extractStoredDateKey = (value?: string | null) => {
   }
   return getLocalDateKey(parsed);
 };
+
+function getDailyTransactionMetrics(transactions: Transaction[]) {
+  const metrics = new Map<string, { grossProfit: number; txCount: number }>();
+  for (const tx of transactions) {
+    const dateKey = extractStoredDateKey(tx.created_at);
+    const existing = metrics.get(dateKey) || { grossProfit: 0, txCount: 0 };
+    existing.grossProfit += Number(tx.fee) || 0;
+    existing.txCount += 1;
+    metrics.set(dateKey, existing);
+  }
+  return metrics;
+}
 
 const getWebDb = () => {
   if (typeof window === 'undefined') return defaultWebDb;
@@ -508,8 +598,9 @@ const repairBrokenWebDebtPayments = (db: any) => {
 };
 
 const getDashboardMetrics = (db: any, daysLimit = 30) => {
-  const transactions = db.transactions || [];
+  const transactions = (db.transactions || []) as Transaction[];
   const walletsMap = db.wallets || {};
+  const dailyTransactionMetrics = getDailyTransactionMetrics(transactions);
 
   const grossProfit = transactions.reduce((sum: number, tx: any) => sum + (Number(tx.fee) || 0), 0);
   const debtAllocation = calculateLedgerDebtAllocation(transactions as Transaction[]);
@@ -522,10 +613,7 @@ const getDashboardMetrics = (db: any, daysLimit = 30) => {
   const totalDebt = debtAllocation.pendingPrincipal + debtAllocation.pendingEarnings;
 
   const todayStr = getLocalDateKey();
-  const todayProfit = transactions.reduce((sum: number, tx: any) => {
-    if (extractStoredDateKey(tx.created_at) === todayStr) return sum + (Number(tx.fee) || 0);
-    return sum;
-  }, 0);
+  const todayProfit = dailyTransactionMetrics.get(todayStr)?.grossProfit || 0;
 
   const wallets = Object.entries(walletsMap).map(([channel, balance]) => ({
     channel,
@@ -552,16 +640,15 @@ const getDashboardMetrics = (db: any, daysLimit = 30) => {
     const dateStr = getLocalDateKey(d);
     const displayLabel = d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
 
-    const dayTxs = transactions.filter((tx: any) => extractStoredDateKey(tx.created_at) === dateStr);
-    const dayGross = dayTxs.reduce((sum: number, tx: any) => sum + (Number(tx.fee) || 0), 0);
+    const dayMetrics = dailyTransactionMetrics.get(dateStr) || { grossProfit: 0, txCount: 0 };
 
     dailyProfits.push({
       dateKey: dateStr,
       date: displayLabel,
-      profit: dayGross,
-      grossProfit: dayGross,
-      netProfit: dayGross,
-      txCount: dayTxs.length,
+      profit: dayMetrics.grossProfit,
+      grossProfit: dayMetrics.grossProfit,
+      netProfit: dayMetrics.grossProfit,
+      txCount: dayMetrics.txCount,
     });
   }
 
@@ -824,7 +911,7 @@ export function useWebDbQueries() {
       queryKey: ['transactions'],
       queryFn: async () => {
         const db = getWebDb();
-        const customerNamesById = new Map((db.customers || []).map((customer: any) => [customer.id, customer.name]));
+        const customerNamesById = new Map<number, string>((db.customers || []).map((customer: any) => [Number(customer.id), String(customer.name || '')]));
         return [...(db.transactions || [])]
           .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
           .map(tx => {
@@ -834,6 +921,40 @@ export function useWebDbQueries() {
             };
           });
       }
+    });
+  };
+
+  const useTransactionHistory = (filters: TransactionHistoryFilters) => {
+    const type = filters.type && filters.type !== 'ALL' ? filters.type : null;
+    const search = filters.search?.trim().toLowerCase() || '';
+    return useInfiniteQuery({
+      queryKey: ['transactions', 'history', type, search],
+      initialPageParam: null as TransactionHistoryCursor | null,
+      queryFn: async ({ pageParam }): Promise<TransactionHistoryPage> => {
+        const db = getWebDb();
+        const customerNamesById = new Map<number, string>((db.customers || []).map((customer: any) => [Number(customer.id), String(customer.name || '')]));
+        return paginateTransactionHistory(
+          db.transactions || [],
+          customerNamesById,
+          { type: type || 'ALL', search },
+          pageParam as TransactionHistoryCursor | null,
+        );
+      },
+      getNextPageParam: (lastPage) => lastPage.nextCursor,
+    });
+  };
+
+  const useTransactionById = (id?: number) => {
+    return useQuery({
+      queryKey: ['transactions', 'record', id],
+      enabled: Boolean(id),
+      queryFn: async () => {
+        const db = getWebDb();
+        const transaction = (db.transactions || []).find((item: Transaction) => item.id === id);
+        if (!transaction) return null;
+        const customer = (db.customers || []).find((item: Customer) => item.id === transaction.customer_id);
+        return { ...transaction, customer_name: customer?.name || null } as Transaction;
+      },
     });
   };
 
@@ -994,10 +1115,20 @@ export function useWebDbQueries() {
           if (normalizedTx.customer_id && !db.customers.some((customer: Customer) => customer.id === normalizedTx.customer_id)) {
             throw new Error('Selected debtor does not exist.');
           }
+          const hasTargetedPayments = oldTx.is_debt === 1 && db.transactions.some((item: Transaction) => item.target_debt_id === oldTx.id);
+          if (hasTargetedPayments && (
+            !normalizedTx.is_debt || normalizedTx.customer_id !== oldTx.customer_id || normalizedTx.amount !== oldTx.amount ||
+            normalizedTx.fee !== oldTx.fee || normalizedTx.deduct_fee !== Boolean(oldTx.deduct_fee)
+          )) {
+            throw new Error('Cannot modify a debt with targeted payments. Delete its targeted payments first.');
+          }
           if (normalizedTx.type === 'DEBT_PAYMENT') {
             const customerId = normalizedTx.customer_id;
             if (!customerId) throw new Error('Debt payment must stay linked to a debtor.');
-            const outstanding = getDebtBalanceForCustomer(db.transactions, customerId, tx.id);
+            const targetDebtId = oldTx.target_debt_id && oldTx.customer_id === customerId ? oldTx.target_debt_id : null;
+            const outstanding = targetDebtId
+              ? getDebtEntryOutstanding(db.transactions.filter((item: Transaction) => item.customer_id === customerId && item.id !== tx.id), targetDebtId)
+              : getDebtBalanceForCustomer(db.transactions, customerId, tx.id);
             if (normalizedTx.amount - outstanding > 0.01) {
               throw new Error(`Debt payment cannot exceed the outstanding balance of ${outstanding.toFixed(2)}.`);
             }
@@ -1016,6 +1147,7 @@ export function useWebDbQueries() {
             customer_id: normalizedTx.customer_id,
             is_debt: normalizedTx.is_debt ? 1 : 0,
             deduct_fee: normalizedTx.deduct_fee ? 1 : 0,
+            target_debt_id: normalizedTx.type === 'DEBT_PAYMENT' && normalizedTx.customer_id === oldTx.customer_id ? oldTx.target_debt_id ?? null : null,
           };
           applyTxToWallets(testWallets, updatedTx, false); // Apply new
 
@@ -1044,6 +1176,9 @@ export function useWebDbQueries() {
         const idx = db.transactions.findIndex((t: any) => t.id === id);
         if (idx !== -1) {
           const tx = db.transactions[idx];
+          if (tx.is_debt === 1 && db.transactions.some((item: Transaction) => item.target_debt_id === tx.id)) {
+            throw new Error('Cannot delete a debt with targeted payments. Delete its targeted payments first.');
+          }
           applyTxToWallets(db.wallets, tx, true);
           db.transactions.splice(idx, 1);
           saveWebDb(db);
@@ -1057,14 +1192,14 @@ export function useWebDbQueries() {
 
   const useSettleDebt = () => {
     return useMutation({
-      mutationFn: async ({ customer_id, amount, channel, profit }: { customer_id: number; amount: number; channel: string; profit?: number }) => {
+      mutationFn: async ({ customer_id, amount, channel, profit, target_debt_id }: { customer_id: number; amount: number; channel: string; profit?: number; target_debt_id?: number }) => {
         const db = getWebDb();
         amount = roundCurrency(amount);
         const extraProfit = roundCurrency(profit || 0);
         assertValidTransactionInput({ type: 'DEBT_PAYMENT', amount, fee: extraProfit, channel, customer_id, is_debt: false });
         if (db.wallets[channel] === undefined) throw new Error('Selected wallet does not exist.');
         if (!db.customers.some((customer: Customer) => customer.id === customer_id)) throw new Error('Selected debtor does not exist.');
-        const outstanding = getDebtBalanceForCustomer(db.transactions, customer_id);
+        const outstanding = target_debt_id ? getDebtEntryOutstanding(db.transactions.filter((tx: Transaction) => tx.customer_id === customer_id), target_debt_id) : getDebtBalanceForCustomer(db.transactions, customer_id);
         if (amount - outstanding > 0.01) {
           throw new Error(`Debt payment cannot exceed the outstanding balance of ${outstanding.toFixed(2)}.`);
         }
@@ -1076,6 +1211,7 @@ export function useWebDbQueries() {
           channel,
           customer_id,
           is_debt: 0,
+          target_debt_id: target_debt_id || null,
           created_at: new Date().toISOString()
         };
         db.transactions.push(newTx);
@@ -1292,6 +1428,8 @@ export function useWebDbQueries() {
     useDebtors,
     useWallets,
     useTransactions,
+    useTransactionHistory,
+    useTransactionById,
     useTransactionsForDate,
     useExportData,
     useBackupData,
@@ -1333,6 +1471,7 @@ export function useDbQueries() {
           LEFT JOIN customers c ON t.customer_id = c.id
           ORDER BY t.created_at DESC
         `);
+        const dailyTransactionMetrics = getDailyTransactionMetrics(allTransactions);
         const grossProfit = allTransactions.reduce((sum, tx) => sum + (Number(tx.fee) || 0), 0);
         const debtAllocation = calculateLedgerDebtAllocation(allTransactions);
         const immediateEarnings = allTransactions.reduce((sum, tx) => {
@@ -1344,12 +1483,7 @@ export function useDbQueries() {
         const totalDebt = debtAllocation.pendingPrincipal + debtAllocation.pendingEarnings;
 
         const todayStr = getLocalDateKey();
-        const todayProfit = allTransactions.reduce((sum, tx) => {
-          if (extractStoredDateKey(tx.created_at) === todayStr) {
-            return sum + (Number(tx.fee) || 0);
-          }
-          return sum;
-        }, 0);
+        const todayProfit = dailyTransactionMetrics.get(todayStr)?.grossProfit || 0;
 
         // Wallet balances
         const wallets = await db.getAllAsync<Wallet>(
@@ -1383,16 +1517,15 @@ export function useDbQueries() {
           const dateStr = getLocalDateKey(d);
           const displayLabel = d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
 
-          const dayTxs = allTransactions.filter((tx) => extractStoredDateKey(tx.created_at) === dateStr);
-          const dayGross = dayTxs.reduce((sum, tx) => sum + (Number(tx.fee) || 0), 0);
+          const dayMetrics = dailyTransactionMetrics.get(dateStr) || { grossProfit: 0, txCount: 0 };
 
           dailyProfits.push({
             dateKey: dateStr,
             date: displayLabel,
-            profit: dayGross,
-            grossProfit: dayGross,
-            netProfit: dayGross,
-            txCount: dayTxs.length,
+            profit: dayMetrics.grossProfit,
+            grossProfit: dayMetrics.grossProfit,
+            netProfit: dayMetrics.grossProfit,
+            txCount: dayMetrics.txCount,
           });
         }
 
@@ -1608,6 +1741,73 @@ export function useDbQueries() {
     });
   };
 
+  const useTransactionHistory = (filters: TransactionHistoryFilters) => {
+    const type = filters.type && filters.type !== 'ALL' ? filters.type : null;
+    const search = filters.search?.trim().toLowerCase() || '';
+    return useInfiniteQuery({
+      queryKey: ['transactions', 'history', type, search],
+      initialPageParam: null as TransactionHistoryCursor | null,
+      queryFn: async ({ pageParam }): Promise<TransactionHistoryPage> => {
+        const cursor = pageParam as TransactionHistoryCursor | null;
+        const where: string[] = [];
+        const params: (string | number)[] = [];
+        if (type) {
+          where.push('t.type = ?');
+          params.push(type);
+        }
+        if (search) {
+          where.push("(LOWER(COALESCE(c.name, 'anonymous transaction')) LIKE ? OR LOWER(t.channel) LIKE ? OR CAST(t.amount AS TEXT) LIKE ?)");
+          const pattern = `%${search}%`;
+          params.push(pattern, pattern, pattern);
+        }
+        const filtersWhere = where.length ? `WHERE ${where.join(' AND ')}` : '';
+        const countResult = await db.getFirstAsync<{ total: number }>(`
+          SELECT COUNT(*) AS total
+          FROM transactions t
+          LEFT JOIN customers c ON t.customer_id = c.id
+          ${filtersWhere}
+        `, params);
+        if (cursor) {
+          where.push('(t.created_at < ? OR (t.created_at = ? AND t.id < ?))');
+          params.push(cursor.createdAt, cursor.createdAt, cursor.id);
+        }
+        const pageWhere = where.length ? `WHERE ${where.join(' AND ')}` : '';
+        const pageWithLookahead = await db.getAllAsync<Transaction>(`
+          SELECT t.*, c.name AS customer_name
+          FROM transactions t
+          LEFT JOIN customers c ON t.customer_id = c.id
+          ${pageWhere}
+          ORDER BY t.created_at DESC, t.id DESC
+          LIMIT ?
+        `, [...params, HISTORY_PAGE_SIZE + 1]);
+        const transactions = pageWithLookahead.slice(0, HISTORY_PAGE_SIZE);
+        const last = transactions.at(-1);
+        return {
+          transactions,
+          total: countResult?.total ?? 0,
+          nextCursor: pageWithLookahead.length > HISTORY_PAGE_SIZE && last ? { createdAt: last.created_at, id: last.id } : undefined,
+        };
+      },
+      getNextPageParam: (lastPage) => lastPage.nextCursor,
+    });
+  };
+
+  const useTransactionById = (id?: number) => {
+    return useQuery({
+      queryKey: ['transactions', 'record', id],
+      enabled: Boolean(id),
+      queryFn: async () => {
+        if (!id) return null;
+        return await db.getFirstAsync<Transaction>(`
+          SELECT t.*, c.name AS customer_name
+          FROM transactions t
+          LEFT JOIN customers c ON t.customer_id = c.id
+          WHERE t.id = ?
+        `, [id]);
+      },
+    });
+  };
+
   const useTransactionsForDate = (dateKey: string) => {
     return useQuery({
       queryKey: ['transactions', 'date', dateKey],
@@ -1756,6 +1956,21 @@ export function useDbQueries() {
         }
         const isDebtInt = normalizedTx.is_debt ? 1 : 0;
         const deductFeeInt = normalizedTx.deduct_fee ? 1 : 0;
+        const existingTx = await db.getFirstAsync<Pick<Transaction, 'customer_id' | 'target_debt_id' | 'is_debt' | 'amount' | 'fee' | 'deduct_fee'>>(
+          'SELECT customer_id, target_debt_id, is_debt, amount, fee, deduct_fee FROM transactions WHERE id = ?', [tx.id]
+        );
+        const dependentPayment = existingTx?.is_debt === 1
+          ? await db.getFirstAsync<{ id: number }>('SELECT id FROM transactions WHERE target_debt_id = ? LIMIT 1', [tx.id])
+          : null;
+        if (dependentPayment && (
+          !normalizedTx.is_debt || normalizedTx.customer_id !== existingTx?.customer_id || normalizedTx.amount !== existingTx.amount ||
+          normalizedTx.fee !== existingTx.fee || normalizedTx.deduct_fee !== Boolean(existingTx.deduct_fee)
+        )) {
+          throw new Error('Cannot modify a debt with targeted payments. Delete its targeted payments first.');
+        }
+        const targetDebtId = normalizedTx.type === 'DEBT_PAYMENT' && existingTx?.customer_id === normalizedTx.customer_id
+          ? existingTx.target_debt_id ?? null
+          : null;
         if (normalizedTx.type === 'DEBT_PAYMENT') {
           const debtResult = await db.getFirstAsync<{ balance: number }>(
             `
@@ -1767,14 +1982,15 @@ export function useDbQueries() {
             `,
             [normalizedTx.customer_id, tx.id]
           );
-          const outstanding = debtResult?.balance ?? 0;
+          const customerTransactions = await db.getAllAsync<Transaction>('SELECT * FROM transactions WHERE customer_id = ? AND id != ?', [normalizedTx.customer_id, tx.id]);
+          const outstanding = targetDebtId ? getDebtEntryOutstanding(customerTransactions, targetDebtId) : debtResult?.balance ?? 0;
           if (normalizedTx.amount - outstanding > 0.01) {
             throw new Error(`Debt payment cannot exceed the outstanding balance of ${outstanding.toFixed(2)}.`);
           }
         }
         await db.runAsync(
-          "UPDATE transactions SET type = ?, amount = ?, fee = ?, channel = ?, customer_id = ?, is_debt = ?, deduct_fee = ? WHERE id = ?",
-          [normalizedTx.type, normalizedTx.amount, normalizedTx.fee, normalizedTx.channel, normalizedTx.customer_id, isDebtInt, deductFeeInt, tx.id]
+          "UPDATE transactions SET type = ?, amount = ?, fee = ?, channel = ?, customer_id = ?, is_debt = ?, deduct_fee = ?, target_debt_id = ? WHERE id = ?",
+          [normalizedTx.type, normalizedTx.amount, normalizedTx.fee, normalizedTx.channel, normalizedTx.customer_id, isDebtInt, deductFeeInt, targetDebtId, tx.id]
         );
       },
       onSuccess: () => {
@@ -1809,38 +2025,41 @@ export function useDbQueries() {
         amount,
         channel,
         profit,
+        target_debt_id,
       }: {
         customer_id: number;
         amount: number;
         channel: string;
         profit?: number;
+        target_debt_id?: number;
       }) => {
         const createdAt = new Date().toISOString();
         amount = roundCurrency(amount);
         const extraProfit = roundCurrency(profit || 0);
         assertValidTransactionInput({ type: 'DEBT_PAYMENT', amount, fee: extraProfit, channel, customer_id, is_debt: false });
-        const wallet = await db.getFirstAsync<{ channel: string }>("SELECT channel FROM wallets WHERE channel = ?", [channel]);
-        if (!wallet) throw new Error('Selected wallet does not exist.');
-        const customer = await db.getFirstAsync<{ id: number }>("SELECT id FROM customers WHERE id = ?", [customer_id]);
-        if (!customer) throw new Error('Selected debtor does not exist.');
-        const debtResult = await db.getFirstAsync<{ balance: number }>(
-          `SELECT
-            COALESCE(SUM(CASE WHEN is_debt = 1 THEN amount + CASE WHEN deduct_fee = 1 THEN 0 ELSE fee END ELSE 0 END), 0) -
-            COALESCE(SUM(CASE WHEN type = 'DEBT_PAYMENT' THEN amount ELSE 0 END), 0) AS balance
-           FROM transactions WHERE customer_id = ?`,
-          [customer_id]
-        );
-        const outstanding = debtResult?.balance ?? 0;
-        if (amount - outstanding > 0.01) {
-          throw new Error(`Debt payment cannot exceed the outstanding balance of ${outstanding.toFixed(2)}.`);
-        }
-        // A debt payment is recorded as a transaction of type DEBT_PAYMENT
-        // It increases the float of the selected channel and decreases the customer's balance.
-        // The `profit` (extra fee) is stored as fee for profit tracking.
-        await db.runAsync(
-          "INSERT INTO transactions (type, amount, fee, channel, customer_id, is_debt, created_at) VALUES ('DEBT_PAYMENT', ?, ?, ?, ?, 0, ?)",
-          [amount, extraProfit, channel, customer_id, createdAt]
-        );
+        await db.withExclusiveTransactionAsync(async (txn) => {
+          const wallet = await txn.getFirstAsync<{ channel: string }>("SELECT channel FROM wallets WHERE channel = ?", [channel]);
+          if (!wallet) throw new Error('Selected wallet does not exist.');
+          const customer = await txn.getFirstAsync<{ id: number }>("SELECT id FROM customers WHERE id = ?", [customer_id]);
+          if (!customer) throw new Error('Selected debtor does not exist.');
+          const customerTransactions = await txn.getAllAsync<Transaction>('SELECT * FROM transactions WHERE customer_id = ?', [customer_id]);
+          const targetedOutstanding = target_debt_id ? getDebtEntryOutstanding(customerTransactions, target_debt_id) : null;
+          const debtResult = await txn.getFirstAsync<{ balance: number }>(
+            `SELECT
+              COALESCE(SUM(CASE WHEN is_debt = 1 THEN amount + CASE WHEN deduct_fee = 1 THEN 0 ELSE fee END ELSE 0 END), 0) -
+              COALESCE(SUM(CASE WHEN type = 'DEBT_PAYMENT' THEN amount ELSE 0 END), 0) AS balance
+             FROM transactions WHERE customer_id = ?`,
+            [customer_id]
+          );
+          const outstanding = targetedOutstanding ?? debtResult?.balance ?? 0;
+          if (amount - outstanding > 0.01) {
+            throw new Error(`Debt payment cannot exceed the outstanding balance of ${outstanding.toFixed(2)}.`);
+          }
+          await txn.runAsync(
+            "INSERT INTO transactions (type, amount, fee, channel, customer_id, is_debt, target_debt_id, created_at) VALUES ('DEBT_PAYMENT', ?, ?, ?, ?, 0, ?, ?)",
+            [amount, extraProfit, channel, customer_id, target_debt_id || null, createdAt]
+          );
+        });
       },
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: ['dashboard'] });
@@ -1941,6 +2160,7 @@ export function useDbQueries() {
           DROP TRIGGER IF EXISTS tr_wallet_balance_guard;
           DROP TRIGGER IF EXISTS tr_transaction_validate_insert;
           DROP TRIGGER IF EXISTS tr_transaction_validate_update;
+          DROP TRIGGER IF EXISTS tr_transaction_validate_delete;
           DROP TRIGGER IF EXISTS tr_customer_delete_with_balance_guard;
         `);
 
@@ -2068,7 +2288,7 @@ export function useDbQueries() {
           "SELECT id, name, phone, notes, follow_up_status, last_reminded_at, created_at FROM customers ORDER BY id ASC"
         );
         const transactions = await db.getAllAsync<Transaction>(
-          "SELECT id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, created_at FROM transactions ORDER BY id ASC"
+          "SELECT id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, target_debt_id, created_at FROM transactions ORDER BY id ASC"
         );
         const wallets = await db.getAllAsync<Wallet>(
           "SELECT channel, balance FROM wallets ORDER BY channel ASC"
@@ -2106,6 +2326,7 @@ export function useDbQueries() {
           DROP TRIGGER IF EXISTS tr_wallet_balance_guard;
           DROP TRIGGER IF EXISTS tr_transaction_validate_insert;
           DROP TRIGGER IF EXISTS tr_transaction_validate_update;
+          DROP TRIGGER IF EXISTS tr_transaction_validate_delete;
           DROP TRIGGER IF EXISTS tr_customer_delete_with_balance_guard;
         `);
 
@@ -2142,7 +2363,7 @@ export function useDbQueries() {
 
             for (const tx of backup.transactions) {
               await db.runAsync(
-                "INSERT INTO transactions (id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO transactions (id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, target_debt_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
                   Number(tx.id),
                   tx.type,
@@ -2152,6 +2373,7 @@ export function useDbQueries() {
                   tx.customer_id ?? null,
                   tx.is_debt ? 1 : 0,
                   tx.deduct_fee ? 1 : 0,
+                  tx.target_debt_id ?? null,
                   tx.created_at || new Date().toISOString(),
                 ]
               );
@@ -2187,6 +2409,8 @@ export function useDbQueries() {
     useDebtors,
     useWallets,
     useTransactions,
+    useTransactionHistory,
+    useTransactionById,
     useTransactionsForDate,
     useExportData,
     useBackupData,

@@ -20,26 +20,9 @@ import {
 import React, { useState, useMemo } from 'react';
 import { Alert, KeyboardAvoidingView, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ledgerColors as C } from '@/theme/ledger';
 
 // ─── Warm Architectural Design Tokens ─────────────────────────────────────────
-const C = {
-  bg: '#12100e',
-  surface: '#1c1916',
-  surface2: '#221e1b',
-  border: '#2d2920',
-  borderLight: '#3a342e',
-  accent: '#e6a817',
-  accentDim: 'rgba(230,168,23,0.12)',
-  success: '#5a9b6e',
-  successDim: 'rgba(90,155,110,0.12)',
-  danger: '#dc6b5a',
-  dangerDim: 'rgba(220,107,90,0.12)',
-  warning: '#c97b2e',
-  text1: '#f0ece5',
-  text2: '#a89f95',
-  text3: '#6b6158',
-};
-
 const clearZeroIfNeeded = (value: string, setter: (value: string) => void) => {
   if (/^0(\.0+)?$/.test(value.trim())) {
     setter('');
@@ -779,32 +762,32 @@ export default function DataScreen() {
       <ScrollView
         style={{ flex: 1 }}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 130 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 160 }}
       >
         {/* Header */}
         <View style={{ marginTop: 24, marginBottom: 20 }}>
-          <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase' }}>Shop Manager</Text>
-          <Text style={{ color: C.text1, fontSize: 26, fontWeight: '800', marginTop: 4 }}>Control Center</Text>
+          <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase' }}>Store Settings</Text>
+          <Text style={{ color: C.text1, fontSize: 26, fontWeight: '800', marginTop: 4 }}>Settings</Text>
         </View>
 
         {/* Database Stats Card */}
         <View style={CARD_STYLE}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, borderBottomWidth: 1, borderColor: C.border, paddingBottom: 14 }}>
             <Database size={18} color={C.accent} />
-            <Text style={{ color: C.text1, fontSize: 14, fontWeight: '700' }}>Diagnostic Ledger Monitor</Text>
+            <Text style={{ color: C.text1, fontSize: 14, fontWeight: '700' }}>Ledger Status</Text>
           </View>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingTop: 16 }}>
             <View style={{ alignItems: 'center', flex: 1 }}>
-              <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 6 }}>Ledger Records</Text>
+              <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 6 }}>Transactions</Text>
               <Text style={{ color: C.text1, fontSize: 16, fontWeight: '900' }}>{dashboardData.recentTransactions.length}</Text>
             </View>
             <View style={{ alignItems: 'center', flex: 1, borderLeftWidth: 1, borderRightWidth: 1, borderColor: C.border }}>
-              <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 6 }}>Linked Float</Text>
+              <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 6 }}>Wallets</Text>
               <Text style={{ color: C.text1, fontSize: 16, fontWeight: '900' }}>{dashboardData.wallets.length} accounts</Text>
             </View>
             <View style={{ alignItems: 'center', flex: 1 }}>
-              <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 6 }}>Core System</Text>
-              <Text style={{ color: C.success, fontSize: 11, fontWeight: '900', textTransform: 'uppercase' }}>SQLite Core</Text>
+              <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 6 }}>Data Storage</Text>
+              <Text style={{ color: C.success, fontSize: 11, fontWeight: '900', textTransform: 'uppercase' }}>On Device</Text>
             </View>
           </View>
         </View>
@@ -870,6 +853,9 @@ export default function DataScreen() {
                     <TouchableOpacity
                       onPress={() => handleDeleteWallet(wallet.channel)}
                       disabled={deleteWalletMutation.isPending}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Delete ${wallet.channel} wallet`}
+                      hitSlop={10}
                       style={{ padding: 6, marginLeft: 4, backgroundColor: C.dangerDim, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(220,107,90,0.15)' }}
                     >
                       <Trash2 size={13} color={C.danger} />
@@ -1077,7 +1063,7 @@ export default function DataScreen() {
         <View style={CARD_STYLE}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <TrendingUp size={18} color={C.success} />
-            <Text style={{ color: C.text1, fontSize: 14, fontWeight: '700' }}>Admin Utilities</Text>
+            <Text style={{ color: C.text1, fontSize: 14, fontWeight: '700' }}>Data & Backup</Text>
           </View>
           <Text style={{ color: C.text2, fontSize: 12, marginBottom: 18, lineHeight: 17 }}>
             Secure your store accounts with CSV reports, JSON backups, and restore tools.
@@ -1193,6 +1179,9 @@ export default function DataScreen() {
                 <TouchableOpacity
                   onPress={() => setRestoreModalVisible(false)}
                   disabled={restoreBackupMutation.isPending}
+                    accessibilityRole="button"
+                    accessibilityLabel="Close backup restore"
+                    hitSlop={10}
                   style={{ padding: 8, backgroundColor: C.surface2, borderRadius: 20, borderWidth: 1, borderColor: C.border, opacity: restoreBackupMutation.isPending ? 0.5 : 1 }}
                 >
                   <X size={18} color={C.text2} />
@@ -1331,6 +1320,9 @@ export default function DataScreen() {
                 </View>
                 <TouchableOpacity
                   onPress={() => setEditModalVisible(false)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close wallet balance editor"
+                  hitSlop={10}
                   style={{ padding: 8, backgroundColor: C.surface2, borderRadius: 20, borderWidth: 1, borderColor: C.border }}
                 >
                   <X size={18} color={C.text2} />
@@ -1397,6 +1389,9 @@ export default function DataScreen() {
                 </View>
                 <TouchableOpacity
                   onPress={() => setAddWalletModalVisible(false)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close add wallet form"
+                  hitSlop={10}
                   style={{ padding: 8, backgroundColor: C.surface2, borderRadius: 20, borderWidth: 1, borderColor: C.border }}
                 >
                   <X size={18} color={C.text2} />

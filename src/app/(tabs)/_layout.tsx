@@ -7,6 +7,7 @@ import {
   Settings 
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ledgerColors as C, ledgerRadius } from '@/theme/ledger';
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
@@ -20,22 +21,22 @@ export default function TabsLayout() {
           bottom: insets.bottom > 0 ? insets.bottom + 12 : 16,
           left: 16,
           right: 16,
-          backgroundColor: '#0e0c0b',
+          backgroundColor: C.surface,
           borderTopWidth: 0,
           height: 64,
-          borderRadius: 22,
+          borderRadius: ledgerRadius.sheet,
           paddingBottom: 8,
           paddingTop: 10,
           borderWidth: 1.5,
-          borderColor: '#2d2920',
+          borderColor: C.border,
           elevation: 8,
           shadowColor: '#000',
           shadowOpacity: 0.5,
           shadowOffset: { width: 0, height: 8 },
           shadowRadius: 16,
         },
-        tabBarActiveTintColor: '#e6a817',
-        tabBarInactiveTintColor: '#6b6158',
+        tabBarActiveTintColor: C.accent,
+        tabBarInactiveTintColor: C.text3,
         tabBarLabelStyle: {
           fontSize: 10,
           fontWeight: '700',
@@ -75,7 +76,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="data"
         options={{
-          title: 'Admin',
+          title: 'Settings',
           tabBarIcon: ({ color, size }) => <Settings size={size || 20} color={color} />,
         }}
       />

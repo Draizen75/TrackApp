@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 import { View, Text, Animated, StyleSheet, Platform } from 'react-native';
 import { CheckCircle2, AlertTriangle, Info } from 'lucide-react-native';
+import { ledgerColors as C } from '@/theme/ledger';
 
 export type ToastType = 'success' | 'error' | 'info';
 
@@ -77,25 +78,25 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     switch (toastType) {
       case 'success':
         return {
-          bg: '#142820',
-          border: 'rgba(90,155,110,0.35)',
+          bg: C.successDim,
+          border: 'rgba(105,173,128,0.35)',
           text: '#a2dfb4',
-          icon: <CheckCircle2 size={16} color="#5a9b6e" />
+          icon: <CheckCircle2 size={16} color={C.success} />
         };
       case 'error':
         return {
-          bg: '#2d1815',
-          border: 'rgba(220,107,90,0.35)',
+          bg: C.dangerDim,
+          border: 'rgba(222,117,101,0.35)',
           text: '#f2a69c',
-          icon: <AlertTriangle size={16} color="#dc6b5a" />
+          icon: <AlertTriangle size={16} color={C.danger} />
         };
       case 'info':
       default:
         return {
-          bg: '#1c1916',
-          border: 'rgba(230,168,23,0.35)',
+          bg: C.surface,
+          border: 'rgba(217,164,65,0.35)',
           text: '#f7d37a',
-          icon: <Info size={16} color="#e6a817" />
+          icon: <Info size={16} color={C.accent} />
         };
     }
   };

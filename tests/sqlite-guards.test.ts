@@ -66,6 +66,34 @@ describe('SQLite ledger guards', () => {
     )).rejects.toThrow('Selected wallet does not exist.');
   });
 
+  it('creates indexes for chronological, debtor, and selected-debt lookups', async () => {
+    const indexes = await db.getAllAsync<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'index'");
+    const names = new Set(indexes.map((index) => index.name));
+
+    expect(names.has('idx_transactions_created_at')).toBe(true);
+    expect(names.has('idx_transactions_customer_created_at')).toBe(true);
+    expect(names.has('idx_transactions_target_debt')).toBe(true);
+  });
+
+  it('uses the ledger indexes for its high-frequency lookups', async () => {
+    const debtorPlan = await db.getAllAsync<{ detail: string }>(
+      'EXPLAIN QUERY PLAN SELECT * FROM transactions WHERE customer_id = ? ORDER BY created_at ASC, id ASC',
+      [1]
+    );
+    const targetPlan = await db.getAllAsync<{ detail: string }>(
+      'EXPLAIN QUERY PLAN SELECT id FROM transactions WHERE target_debt_id = ? LIMIT 1',
+      [1]
+    );
+    const datePlan = await db.getAllAsync<{ detail: string }>(
+      'EXPLAIN QUERY PLAN SELECT * FROM transactions WHERE created_at >= ? AND created_at < ? ORDER BY created_at DESC, id DESC',
+      ['2026-01-01T00:00:00.000Z', '2026-01-02T00:00:00.000Z']
+    );
+
+    expect(debtorPlan.some((row) => row.detail.includes('idx_transactions_customer_created_at'))).toBe(true);
+    expect(targetPlan.some((row) => row.detail.includes('idx_transactions_target_debt'))).toBe(true);
+    expect(datePlan.some((row) => row.detail.includes('idx_transactions_created_at'))).toBe(true);
+  });
+
   it('rejects direct debt overpayments while accepting a payment equal to the balance', async () => {
     await db.runAsync(
       "INSERT INTO transactions (type, amount, fee, channel, customer_id, is_debt, deduct_fee, created_at) VALUES ('E_LOAD', 100, 10, 'GCASH', 1, 1, 0, ?)",
@@ -80,6 +108,74 @@ describe('SQLite ledger guards', () => {
     await expect(db.runAsync(
       "INSERT INTO transactions (type, amount, fee, channel, customer_id, is_debt, deduct_fee, created_at) VALUES ('DEBT_PAYMENT', 110, 0, 'GCASH', 1, 0, 0, ?)",
       ['2026-01-02T00:00:00.000Z']
+    )).resolves.toBeDefined();
+  });
+
+  it('protects debts that have targeted payments from incompatible edits or deletion', async () => {
+    await db.runAsync(
+      "INSERT INTO transactions (id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, created_at) VALUES (401, 'E_LOAD', 100, 10, 'GCASH', 1, 1, 0, ?)",
+      ['2026-01-01T00:00:00.000Z']
+    );
+    await db.runAsync(
+      "INSERT INTO transactions (id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, target_debt_id, created_at) VALUES (402, 'DEBT_PAYMENT', 110, 0, 'GCASH', 1, 0, 0, 401, ?)",
+      ['2026-01-02T00:00:00.000Z']
+    );
+
+    await expect(db.runAsync('DELETE FROM transactions WHERE id = 401'))
+      .rejects.toThrow('Cannot delete a debt with targeted payments');
+    await expect(db.runAsync('UPDATE transactions SET amount = 50 WHERE id = 401'))
+      .rejects.toThrow('Cannot modify a debt with targeted payments');
+  });
+
+  it('rejects a selected-debt payment whose debt reference is invalid', async () => {
+    await expect(db.runAsync(
+      "INSERT INTO transactions (type, amount, fee, channel, customer_id, is_debt, deduct_fee, target_debt_id, created_at) VALUES ('DEBT_PAYMENT', 1, 0, 'GCASH', 1, 0, 0, 999, ?)",
+      ['2026-01-02T00:00:00.000Z']
+    )).rejects.toThrow('Selected debt does not exist for this debtor.');
+  });
+
+  it('rejects duplicate targeted payments even when the debtor has another open debt', async () => {
+    await db.runAsync(
+      "INSERT INTO transactions (id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, created_at) VALUES (501, 'E_LOAD', 100, 10, 'GCASH', 1, 1, 0, ?)",
+      ['2026-01-01T00:00:00.000Z']
+    );
+    await db.runAsync(
+      "INSERT INTO transactions (id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, created_at) VALUES (502, 'E_LOAD', 100, 10, 'GCASH', 1, 1, 0, ?)",
+      ['2026-01-02T00:00:00.000Z']
+    );
+    await db.runAsync(
+      "INSERT INTO transactions (id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, target_debt_id, created_at) VALUES (503, 'DEBT_PAYMENT', 110, 0, 'GCASH', 1, 0, 0, 501, ?)",
+      ['2026-01-03T00:00:00.000Z']
+    );
+
+    await expect(db.runAsync(
+      "INSERT INTO transactions (id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, target_debt_id, created_at) VALUES (504, 'DEBT_PAYMENT', 110, 0, 'GCASH', 1, 0, 0, 501, ?)",
+      ['2026-01-04T00:00:00.000Z']
+    )).rejects.toThrow('Debt payment cannot exceed the selected debt balance.');
+  });
+
+  it('rejects a selected-debt payment after FIFO has already settled that debt', async () => {
+    await db.runAsync(
+      "INSERT INTO transactions (id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, created_at) VALUES (601, 'E_LOAD', 100, 0, 'GCASH', 1, 1, 0, ?)",
+      ['2026-01-01T00:00:00.000Z']
+    );
+    await db.runAsync(
+      "INSERT INTO transactions (id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, created_at) VALUES (602, 'E_LOAD', 100, 0, 'GCASH', 1, 1, 0, ?)",
+      ['2026-01-02T00:00:00.000Z']
+    );
+    await db.runAsync(
+      "INSERT INTO transactions (id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, created_at) VALUES (603, 'DEBT_PAYMENT', 100, 0, 'GCASH', 1, 0, 0, ?)",
+      ['2026-01-03T00:00:00.000Z']
+    );
+
+    await expect(db.runAsync(
+      "INSERT INTO transactions (id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, target_debt_id, created_at) VALUES (604, 'DEBT_PAYMENT', 1, 0, 'GCASH', 1, 0, 0, 601, ?)",
+      ['2026-01-04T00:00:00.000Z']
+    )).rejects.toThrow('Debt payment cannot exceed the selected debt balance.');
+
+    await expect(db.runAsync(
+      "INSERT INTO transactions (id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, target_debt_id, created_at) VALUES (605, 'DEBT_PAYMENT', 100, 0, 'GCASH', 1, 0, 0, 602, ?)",
+      ['2026-01-04T00:00:00.000Z']
     )).resolves.toBeDefined();
   });
 

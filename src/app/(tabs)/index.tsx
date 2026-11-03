@@ -26,26 +26,9 @@ import {
 import { useMemo, useState } from 'react';
 import { Alert, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ledgerColors as C, ledgerRadius } from '@/theme/ledger';
 
 // ─── Warm Architectural Design Tokens ─────────────────────────────────────────
-const C = {
-  bg: '#12100e',
-  surface: '#1c1916',
-  surface2: '#221e1b',
-  border: '#2d2920',
-  borderLight: '#3a342e',
-  accent: '#e6a817',
-  accentDim: 'rgba(230,168,23,0.12)',
-  success: '#5a9b6e',
-  successDim: 'rgba(90,155,110,0.12)',
-  danger: '#dc6b5a',
-  dangerDim: 'rgba(220,107,90,0.12)',
-  warning: '#c97b2e',
-  text1: '#f0ece5',
-  text2: '#a89f95',
-  text3: '#6b6158',
-};
-
 export default function DashboardScreen() {
   const router = useRouter();
 
@@ -88,12 +71,14 @@ export default function DashboardScreen() {
 
   // Custom N-Day Summary Calculation (BEFORE ANY CONDITIONAL RETURNS)
   const customNDaySummary = useMemo(() => {
-    const list = (data?.dailyProfits || []).slice(-Math.max(activeDaysCount, 1));
+    const dayCount = Math.max(activeDaysCount, 1);
+    const list = (data?.dailyProfits || []).slice(-dayCount);
     const grossProfit = list.reduce((sum, d) => sum + (d.grossProfit || d.profit || 0), 0);
     return {
       grossProfit,
       netProfit: grossProfit,
       txCount: list.reduce((sum, d) => sum + (d.txCount || 0), 0),
+      dailyAverage: grossProfit / dayCount,
     };
   }, [data?.dailyProfits, activeDaysCount]);
 
@@ -156,7 +141,7 @@ export default function DashboardScreen() {
       MAYA: { colors: ['#142820', '#0d1f18'], label: 'Maya', accentColor: '#5a9b6e', segmentColor: '#5a9b6e' },
       MAYA_BUSINESS: { colors: ['#1f1b14', '#15120d'], label: 'Maya Biz', accentColor: '#c97b2e', segmentColor: '#c97b2e' },
       MARIBANK: { colors: ['#14261f', '#0e1b16'], label: 'MariBank', accentColor: '#4a9b8a', segmentColor: '#4a9b8a' },
-      PHYSICAL_CASH: { colors: ['#2a1f10', '#1c1509'], label: 'Cash Box', accentColor: '#e6a817', segmentColor: '#e6a817' },
+      PHYSICAL_CASH: { colors: ['#2a1f10', '#1c1509'], label: 'Cash Box', accentColor: C.accent, segmentColor: C.accent },
     };
 
     if (defaultThemes[upper]) return defaultThemes[upper];
@@ -194,11 +179,25 @@ export default function DashboardScreen() {
 
   const CARD_STYLE = {
     backgroundColor: C.surface,
-    borderRadius: 20,
-    padding: 20,
+    borderRadius: ledgerRadius.card,
+    padding: 16,
     borderWidth: 1,
     borderColor: C.border,
     marginBottom: 16,
+  };
+  const SECONDARY_SECTION_STYLE = {
+    paddingVertical: 20,
+    borderTopWidth: 1,
+    borderTopColor: C.border,
+    marginBottom: 8,
+  };
+  const SUMMARY_ROW_STYLE = {
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+    flexDirection: 'row' as const,
+    justifyContent: 'space-between' as const,
+    alignItems: 'center' as const,
   };
 
 
@@ -241,12 +240,12 @@ export default function DashboardScreen() {
 
         {/* ── Hero KPI Card ─────────────────────────────────────────── */}
         <LinearGradient
-          colors={['#1f1b12', '#181410']}
+          colors={['#282217', '#1d1a15']}
           style={{
-            borderRadius: 22,
-            padding: 24,
+            borderRadius: ledgerRadius.card,
+            padding: 20,
             borderWidth: 1,
-            borderColor: 'rgba(230,168,23,0.25)',
+            borderColor: C.border,
             marginBottom: 16,
           }}
         >
@@ -343,7 +342,7 @@ export default function DashboardScreen() {
         </View>
 
         {/* ── Float Allocation Bar ──────────────────────────────────── */}
-        <View style={CARD_STYLE}>
+        <View style={SECONDARY_SECTION_STYLE}>
           <Text style={{ color: C.text2, fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', fontWeight: '700', marginBottom: 16 }}>
             Float Allocation
           </Text>
@@ -389,7 +388,7 @@ export default function DashboardScreen() {
         </View>
 
         {/* ── Multi-Timeframe Earnings Summary Section ──────────────── */}
-        <View style={CARD_STYLE}>
+        <View style={SECONDARY_SECTION_STYLE}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 }}>
             <Calendar size={14} color={C.accent} />
             <Text style={{ color: C.text2, fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', fontWeight: '700' }}>
@@ -397,10 +396,10 @@ export default function DashboardScreen() {
             </Text>
           </View>
 
-          {/* Summary Cards */}
-          <View style={{ gap: 10 }}>
+          {/* Compact summary rows keep the earnings hierarchy calm and scannable. */}
+          <View>
             {/* Today */}
-            <View style={{ backgroundColor: C.surface2, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: C.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <View style={SUMMARY_ROW_STYLE}>
               <View>
                 <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>Today</Text>
                 <Text style={{ color: C.text1, fontSize: 16, fontWeight: '800', marginTop: 2 }}>
@@ -415,7 +414,7 @@ export default function DashboardScreen() {
             </View>
 
             {/* 7 Days (This Week) */}
-            <View style={{ backgroundColor: C.surface2, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: C.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <View style={SUMMARY_ROW_STYLE}>
               <View>
                 <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>This Week (7 Days)</Text>
                 <Text style={{ color: C.text1, fontSize: 16, fontWeight: '800', marginTop: 2 }}>
@@ -430,7 +429,7 @@ export default function DashboardScreen() {
             </View>
 
             {/* 30 Days (This Month) */}
-            <View style={{ backgroundColor: C.surface2, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: C.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <View style={{ ...SUMMARY_ROW_STYLE, borderBottomWidth: 0 }}>
               <View>
                 <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>This Month (30 Days)</Text>
                 <Text style={{ color: C.accent, fontSize: 16, fontWeight: '800', marginTop: 2 }}>
@@ -445,7 +444,7 @@ export default function DashboardScreen() {
             </View>
 
             {/* Custom N-Days Dropdown Card */}
-            <View style={{ backgroundColor: C.surface2, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: 'rgba(230,168,23,0.3)' }}>
+            <View style={{ backgroundColor: C.surface2, borderRadius: ledgerRadius.control, padding: 14, borderWidth: 1, borderColor: C.border, marginTop: 8 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
                   <SlidersHorizontal size={12} color={C.accent} />
@@ -482,7 +481,7 @@ export default function DashboardScreen() {
                 </TouchableOpacity>
               </View>
 
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
                 <View>
                   <Text style={{ color: C.text1, fontSize: 15, fontWeight: '800' }}>
                     ₱{customNDaySummary.netProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -491,7 +490,13 @@ export default function DashboardScreen() {
                     Total Net Profit in last {activeDaysCount} days
                   </Text>
                 </View>
-                <View style={{ alignItems: 'flex-end' }}>
+                <View style={{ alignItems: 'flex-end', flexShrink: 1 }}>
+                  <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.7 }}>
+                    Daily Average
+                  </Text>
+                  <Text style={{ color: C.success, fontSize: 15, fontWeight: '800', marginTop: 2 }}>
+                    ₱{customNDaySummary.dailyAverage.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </Text>
                   <Text style={{ color: C.accent, fontSize: 11, fontWeight: '700' }}>
                     {customNDaySummary.txCount} Tx Logs
                   </Text>
@@ -503,7 +508,7 @@ export default function DashboardScreen() {
         </View>
 
         {/* ── Dynamic Interactive Profit Chart ─────────────────────── */}
-        <View style={CARD_STYLE}>
+        <View style={SECONDARY_SECTION_STYLE}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, gap: 8 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
               <BarChart2 size={14} color={C.accent} />
@@ -730,12 +735,18 @@ export default function DashboardScreen() {
                         }
                         router.push(`/history?editTxId=${tx.id}`);
                       }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Edit transaction"
+                      hitSlop={10}
                       style={{ padding: 8 }}
                     >
                       <Pencil size={14} color={C.accent} />
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => handleDeleteTx(tx)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Delete transaction"
+                      hitSlop={10}
                       style={{ padding: 8 }}
                     >
                       <Trash2 size={14} color={C.text3} />
@@ -782,6 +793,9 @@ export default function DashboardScreen() {
               </View>
               <TouchableOpacity
                 onPress={() => setIsCustomDaysModalOpen(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Close date range selector"
+                hitSlop={10}
                 style={{ padding: 4 }}
               >
                 <X size={18} color={C.text3} />

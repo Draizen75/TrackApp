@@ -10,7 +10,16 @@ import '../global.css';
 
 SplashScreen.preventAutoHideAsync();
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Ledger writes explicitly invalidate affected queries. This prevents
+      // avoidable re-queries while switching tabs without serving stale writes.
+      staleTime: 15_000,
+      gcTime: 10 * 60_000,
+    },
+  },
+});
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();

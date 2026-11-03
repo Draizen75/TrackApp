@@ -9,26 +9,9 @@ import { Controller, useForm } from 'react-hook-form';
 import { KeyboardAvoidingView, ScrollView, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as z from 'zod';
+import { ledgerColors as C } from '@/theme/ledger';
 
 // ─── Warm Architectural Design Tokens ─────────────────────────────────────────
-const C = {
-  bg: '#12100e',
-  surface: '#1c1916',
-  surface2: '#221e1b',
-  border: '#2d2920',
-  borderLight: '#3a342e',
-  accent: '#e6a817',
-  accentDim: 'rgba(230,168,23,0.12)',
-  success: '#5a9b6e',
-  successDim: 'rgba(90,155,110,0.12)',
-  danger: '#dc6b5a',
-  dangerDim: 'rgba(220,107,90,0.12)',
-  warning: '#c97b2e',
-  text1: '#f0ece5',
-  text2: '#a89f95',
-  text3: '#6b6158',
-};
-
 const clearZeroIfNeeded = (value: string, setter: (value: string) => void) => {
   if (/^0(\.0+)?$/.test(value.trim())) {
     setter('');
@@ -333,7 +316,7 @@ export default function EntryScreen() {
         <ScrollView
           style={{ flex: 1 }}
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ flexGrow: 1, paddingBottom: 120 }}
+          contentContainerStyle={{ flexGrow: 1, paddingBottom: 160 }}
         >
           {/* Header */}
           <View style={{ height: 110, justifyContent: 'center', paddingHorizontal: 24, marginTop: 10 }}>
