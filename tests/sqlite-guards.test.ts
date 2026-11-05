@@ -72,6 +72,7 @@ describe('SQLite ledger guards', () => {
 
     expect(names.has('idx_transactions_created_at')).toBe(true);
     expect(names.has('idx_transactions_customer_created_at')).toBe(true);
+    expect(names.has('idx_transactions_debt_ledger')).toBe(true);
     expect(names.has('idx_transactions_target_debt')).toBe(true);
   });
 
@@ -88,10 +89,93 @@ describe('SQLite ledger guards', () => {
       'EXPLAIN QUERY PLAN SELECT * FROM transactions WHERE created_at >= ? AND created_at < ? ORDER BY created_at DESC, id DESC',
       ['2026-01-01T00:00:00.000Z', '2026-01-02T00:00:00.000Z']
     );
+    const debtLedgerPlan = await db.getAllAsync<{ detail: string }>(
+      `EXPLAIN QUERY PLAN
+       SELECT t.id, t.type, t.amount, t.fee, t.customer_id, t.is_debt, t.deduct_fee,
+         t.target_debt_id, t.created_at, c.name AS customer_name
+       FROM transactions t
+       LEFT JOIN customers c ON t.customer_id = c.id
+       WHERE t.is_debt = 1 OR t.type = 'DEBT_PAYMENT'
+       ORDER BY t.created_at ASC, t.id ASC`
+    );
+    const customerLedgerPlan = await db.getAllAsync<{ detail: string }>(
+      `EXPLAIN QUERY PLAN
+       SELECT id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, target_debt_id, created_at
+       FROM transactions
+       WHERE customer_id = ? AND (is_debt = 1 OR type = 'DEBT_PAYMENT')
+       ORDER BY created_at DESC, id DESC`,
+      [1]
+    );
+    const debtByIdPlan = await db.getAllAsync<{ detail: string }>(
+      'EXPLAIN QUERY PLAN SELECT id, type, amount, fee, customer_id FROM transactions WHERE id = ? AND is_debt = 1',
+      [1]
+    );
 
     expect(debtorPlan.some((row) => row.detail.includes('idx_transactions_customer_created_at'))).toBe(true);
     expect(targetPlan.some((row) => row.detail.includes('idx_transactions_target_debt'))).toBe(true);
     expect(datePlan.some((row) => row.detail.includes('idx_transactions_created_at'))).toBe(true);
+    expect(debtLedgerPlan.some((row) => row.detail.includes('idx_transactions_debt_ledger'))).toBe(true);
+    expect(customerLedgerPlan.some((row) => row.detail.includes('idx_transactions_customer_created_at'))).toBe(true);
+    expect(debtByIdPlan.some((row) => row.detail.includes('INTEGER PRIMARY KEY'))).toBe(true);
+  });
+
+  it('aggregates dashboard activity only for the requested local-date window', async () => {
+    const now = new Date();
+    const todayKey = [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, '0'),
+      String(now.getDate()).padStart(2, '0'),
+    ].join('-');
+    const windowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    const windowEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
+    const createdAt = now.toISOString();
+
+    await db.runAsync(
+      "INSERT INTO transactions (type, amount, fee, channel, is_debt, deduct_fee, created_at) VALUES ('E_LOAD', 10, 5, 'GCASH', 0, 0, ?)",
+      [createdAt]
+    );
+    await db.runAsync(
+      "INSERT INTO transactions (type, amount, fee, channel, customer_id, is_debt, deduct_fee, created_at) VALUES ('E_LOAD', 100, 10, 'GCASH', 1, 1, 0, ?)",
+      [createdAt]
+    );
+    await db.runAsync(
+      "INSERT INTO transactions (type, amount, fee, channel, customer_id, is_debt, deduct_fee, created_at) VALUES ('DEBT_PAYMENT', 50, 0, 'GCASH', 1, 0, 0, ?)",
+      [createdAt]
+    );
+
+    const dailyMetrics = await db.getAllAsync<{
+      date_key: string;
+      gross_profit: number;
+      immediate_earnings: number;
+      tx_count: number;
+      debt_added: number;
+      debt_collected: number;
+    }>(`
+      SELECT
+        strftime('%Y-%m-%d', created_at, 'localtime') AS date_key,
+        COALESCE(SUM(fee), 0) AS gross_profit,
+        COALESCE(SUM(CASE WHEN is_debt = 0 AND type != 'DEBT_PAYMENT' THEN fee ELSE 0 END), 0) AS immediate_earnings,
+        COUNT(*) AS tx_count,
+        COALESCE(SUM(CASE WHEN is_debt = 1 THEN amount + CASE WHEN deduct_fee = 1 THEN 0 ELSE fee END ELSE 0 END), 0) AS debt_added,
+        COALESCE(SUM(CASE WHEN type = 'DEBT_PAYMENT' THEN amount ELSE 0 END), 0) AS debt_collected
+      FROM transactions
+      WHERE created_at >= ? AND created_at < ?
+      GROUP BY date_key
+    `, [windowStart, windowEnd]);
+
+    expect(dailyMetrics).toEqual([{
+      date_key: todayKey,
+      gross_profit: 15,
+      immediate_earnings: 5,
+      tx_count: 3,
+      debt_added: 110,
+      debt_collected: 50,
+    }]);
+
+    const total = await db.getFirstAsync<{ transaction_count: number }>(
+      'SELECT COUNT(*) AS transaction_count FROM transactions'
+    );
+    expect(total?.transaction_count).toBe(3);
   });
 
   it('rejects direct debt overpayments while accepting a payment equal to the balance', async () => {
@@ -106,9 +190,75 @@ describe('SQLite ledger guards', () => {
     )).rejects.toThrow('Debt payment cannot exceed the outstanding balance.');
 
     await expect(db.runAsync(
+      "INSERT INTO transactions (type, amount, fee, channel, customer_id, is_debt, deduct_fee, created_at) VALUES ('DEBT_PAYMENT', 110.01, 0, 'GCASH', 1, 0, 0, ?)",
+      ['2026-01-02T00:00:00.000Z']
+    )).rejects.toThrow('Debt payment cannot exceed the outstanding balance.');
+
+    await expect(db.runAsync(
       "INSERT INTO transactions (type, amount, fee, channel, customer_id, is_debt, deduct_fee, created_at) VALUES ('DEBT_PAYMENT', 110, 0, 'GCASH', 1, 0, 0, ?)",
       ['2026-01-02T00:00:00.000Z']
     )).resolves.toBeDefined();
+  });
+
+  it('rejects wallet overdrafts of exactly one cent without persisting the transaction', async () => {
+    await db.runAsync("UPDATE wallets SET balance = 0.01 WHERE channel = 'GCASH'");
+
+    await expect(db.runAsync(
+      "INSERT INTO transactions (type, amount, fee, channel, is_debt, deduct_fee, created_at) VALUES ('E_LOAD', 0.02, 0, 'GCASH', 0, 0, ?)",
+      ['2026-01-02T00:00:00.000Z']
+    )).rejects.toThrow('Insufficient float balance');
+
+    const balance = await db.getFirstAsync<{ balance: number }>("SELECT balance FROM wallets WHERE channel = 'GCASH'");
+    const count = await db.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM transactions');
+    expect(balance?.balance).toBe(0.01);
+    expect(count?.count).toBe(0);
+
+    await expect(db.runAsync(
+      "INSERT INTO transactions (type, amount, fee, channel, is_debt, deduct_fee, created_at) VALUES ('E_LOAD', 0.01, 0, 'GCASH', 0, 0, ?)",
+      ['2026-01-02T00:00:00.000Z']
+    )).resolves.toBeDefined();
+  });
+
+  it('rejects targeted payments dated before their debt on insert and update', async () => {
+    await db.runAsync(
+      "INSERT INTO transactions (id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, created_at) VALUES (701, 'E_LOAD', 100, 0, 'GCASH', 1, 1, 0, ?)",
+      ['2026-01-02T00:00:00.000Z']
+    );
+
+    await expect(db.runAsync(
+      "INSERT INTO transactions (id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, target_debt_id, created_at) VALUES (700, 'DEBT_PAYMENT', 10, 0, 'GCASH', 1, 0, 0, 701, ?)",
+      ['2026-01-01T00:00:00.000Z']
+    )).rejects.toThrow('A debt cannot be paid before it was recorded.');
+
+    await db.runAsync(
+      "INSERT INTO transactions (id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, target_debt_id, created_at) VALUES (702, 'DEBT_PAYMENT', 10, 0, 'GCASH', 1, 0, 0, 701, ?)",
+      ['2026-01-03T00:00:00.000Z']
+    );
+    await expect(db.runAsync(
+      "UPDATE transactions SET created_at = ? WHERE id = 702",
+      ['2026-01-01T00:00:00.000Z']
+    )).rejects.toThrow('A debt cannot be paid before it was recorded.');
+  });
+
+  it('keeps settled transaction history linked when customer deletion is attempted', async () => {
+    await db.runAsync(
+      "INSERT INTO transactions (type, amount, fee, channel, customer_id, is_debt, deduct_fee, created_at) VALUES ('E_LOAD', 100, 10, 'GCASH', 1, 1, 0, ?)",
+      ['2026-01-01T00:00:00.000Z']
+    );
+    await db.runAsync(
+      "INSERT INTO transactions (type, amount, fee, channel, customer_id, is_debt, deduct_fee, created_at) VALUES ('DEBT_PAYMENT', 110, 0, 'GCASH', 1, 0, 0, ?)",
+      ['2026-01-02T00:00:00.000Z']
+    );
+
+    await expect(db.runAsync('DELETE FROM customers WHERE id = 1'))
+      .rejects.toThrow('Cannot delete a customer with transaction history');
+
+    const customer = await db.getFirstAsync<{ id: number }>('SELECT id FROM customers WHERE id = 1');
+    const linkedHistory = await db.getFirstAsync<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM transactions WHERE customer_id = 1'
+    );
+    expect(customer?.id).toBe(1);
+    expect(linkedHistory?.count).toBe(2);
   });
 
   it('protects debts that have targeted payments from incompatible edits or deletion', async () => {
@@ -185,7 +335,8 @@ describe('SQLite ledger guards', () => {
       ['2026-01-01T00:00:00.000Z']
     );
 
-    await expect(db.runAsync('DELETE FROM customers WHERE id = 1')).rejects.toThrow('Cannot delete a customer with an outstanding debt.');
+    await expect(db.runAsync('DELETE FROM customers WHERE id = 1'))
+      .rejects.toThrow('Cannot delete a customer with transaction history');
   });
 
   it('does not alter existing transactions or wallet balances silently', async () => {

@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
-import { View, Text, Animated, StyleSheet, Platform } from 'react-native';
-import { CheckCircle2, AlertTriangle, Info } from 'lucide-react-native';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
+import { View, Text, Animated, Pressable } from 'react-native';
+import { CheckCircle2, AlertTriangle, Info, X } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ledgerColors as C } from '@/theme/ledger';
 
 export type ToastType = 'success' | 'error' | 'info';
@@ -9,7 +10,96 @@ interface ToastContextType {
   showToast: (message: string, type?: ToastType) => void;
 }
 
+type ToastNoticeProps = {
+  message: string;
+  type: ToastType;
+  onDismiss?: () => void;
+};
+
 const ToastContext = createContext<ToastContextType | undefined>(undefined);
+
+function getToastColors(type: ToastType) {
+  switch (type) {
+    case 'success':
+      return {
+        border: 'rgba(32,200,117,0.55)',
+        text: C.success,
+        iconBg: C.successDim,
+        title: 'Saved successfully',
+        icon: <CheckCircle2 size={17} color={C.success} />,
+      };
+    case 'error':
+      return {
+        border: 'rgba(239,68,68,0.55)',
+        text: '#fca5a5',
+        iconBg: C.dangerDim,
+        title: 'Something went wrong',
+        icon: <AlertTriangle size={17} color={C.danger} />,
+      };
+    case 'info':
+      return {
+        border: 'rgba(255,209,102,0.55)',
+        text: C.accent,
+        iconBg: C.accentDim,
+        title: 'Notice',
+        icon: <Info size={17} color={C.accent} />,
+      };
+  }
+}
+
+export function ToastNotice({ message, type, onDismiss }: ToastNoticeProps) {
+  const colors = getToastColors(type);
+
+  return (
+    <View
+      testID="toast-notice"
+      accessibilityRole="alert"
+      accessibilityLiveRegion="polite"
+      style={{
+        minHeight: 52,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        padding: 14,
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: C.surface,
+        boxShadow: '0 8px 26px rgba(0,0,0,0.42)',
+      }}
+    >
+      <View style={{
+        width: 34,
+        height: 34,
+        borderRadius: 17,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.iconBg,
+      }}>
+        {colors.icon}
+      </View>
+      <View style={{ flex: 1, gap: 3 }}>
+        <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800' }}>
+          {colors.title}
+        </Text>
+        <Text style={{ color: C.text2, fontSize: 12, fontWeight: '500', lineHeight: 17 }}>
+          {message}
+        </Text>
+      </View>
+      {onDismiss && (
+        <Pressable
+          onPress={onDismiss}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss notification"
+          hitSlop={8}
+          style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}
+        >
+          <X size={16} color={C.text3} />
+        </Pressable>
+      )}
+    </View>
+  );
+}
 
 export function useToast() {
   const context = useContext(ToastContext);
@@ -23,137 +113,88 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [message, setMessage] = useState('');
   const [toastType, setToastType] = useState<ToastType>('success');
   const [visible, setVisible] = useState(false);
-  
+  const insets = useSafeAreaInsets();
   const [fadeAnim] = useState(() => new Animated.Value(0));
-  const [slideAnim] = useState(() => new Animated.Value(-100));
+  const [slideAnim] = useState(() => new Animated.Value(-24));
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const dismissToast = useCallback(() => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: -24,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
+      if (finished) setVisible(false);
+    });
+  }, [fadeAnim, slideAnim]);
 
   const showToast = useCallback((msg: string, type: ToastType = 'success') => {
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
     }
 
+    fadeAnim.stopAnimation();
+    slideAnim.stopAnimation();
     setMessage(msg);
     setToastType(type);
     setVisible(true);
-
-    // Reset animations
     fadeAnim.setValue(0);
-    slideAnim.setValue(-100);
+    slideAnim.setValue(-24);
 
-    // Slide in and fade in
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: 300,
+        duration: 220,
         useNativeDriver: true,
       }),
       Animated.timing(slideAnim, {
-        toValue: Platform.OS === 'ios' ? 60 : 40, // Position safely below top notch / safe area
-        duration: 300,
+        toValue: 0,
+        duration: 220,
         useNativeDriver: true,
       }),
     ]).start();
 
-    // Auto dismiss after 2.5 seconds
     timeoutRef.current = setTimeout(() => {
-      Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: 250,
-          useNativeDriver: true,
-        }),
-        Animated.timing(slideAnim, {
-          toValue: -100,
-          duration: 250,
-          useNativeDriver: true,
-        }),
-      ]).start(() => {
-        setVisible(false);
-      });
-    }, 2500);
-  }, [fadeAnim, slideAnim]);
+      timeoutRef.current = null;
+      dismissToast();
+    }, type === 'error' ? 5000 : 3500);
+  }, [dismissToast, fadeAnim, slideAnim]);
 
-  const getColors = () => {
-    switch (toastType) {
-      case 'success':
-        return {
-          bg: C.successDim,
-          border: 'rgba(105,173,128,0.35)',
-          text: '#a2dfb4',
-          icon: <CheckCircle2 size={16} color={C.success} />
-        };
-      case 'error':
-        return {
-          bg: C.dangerDim,
-          border: 'rgba(222,117,101,0.35)',
-          text: '#f2a69c',
-          icon: <AlertTriangle size={16} color={C.danger} />
-        };
-      case 'info':
-      default:
-        return {
-          bg: C.surface,
-          border: 'rgba(217,164,65,0.35)',
-          text: '#f7d37a',
-          icon: <Info size={16} color={C.accent} />
-        };
-    }
-  };
-
-  const colors = getColors();
+  useEffect(() => () => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+  }, []);
 
   return (
     <ToastContext.Provider value={{ showToast }}>
       {children}
       {visible && (
         <Animated.View
-          style={[
-            styles.toastContainer,
-            {
-              opacity: fadeAnim,
-              transform: [{ translateY: slideAnim }],
-              backgroundColor: colors.bg,
-              borderColor: colors.border,
-            },
-          ]}
+          style={{
+            position: 'absolute',
+            top: insets.top + 10,
+            left: 16,
+            right: 16,
+            zIndex: 9999,
+            opacity: fadeAnim,
+            transform: [{ translateY: slideAnim }],
+          }}
         >
-          <View style={styles.toastContent}>
-            {colors.icon}
-            <Text style={[styles.toastText, { color: colors.text }]}>{message}</Text>
-          </View>
+          <ToastNotice message={message} type={toastType} onDismiss={dismissToast} />
         </Animated.View>
       )}
     </ToastContext.Provider>
   );
 }
-
-const styles = StyleSheet.create({
-  toastContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 20,
-    right: 20,
-    borderRadius: 16,
-    borderWidth: 1,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    zIndex: 9999,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    elevation: 8,
-  },
-  toastContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  toastText: {
-    fontSize: 12,
-    fontWeight: '700',
-    flex: 1,
-    lineHeight: 16,
-  },
-});

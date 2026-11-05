@@ -1,13 +1,21 @@
 import {
   assertValidBackup,
   assertValidTransactionInput,
+  analyzeDebtLedger,
+  applyOptimisticDebtPayment,
+  calculateCollectedDebtEarningsByDate,
   calculateDebtPaymentAllocation,
   calculateLedgerDebtAllocation,
   calculateOldestUnpaidDebtDate,
+  getDebtOutstandingById,
+  getDebtorBalanceStatus,
   getDebtEntryOutstanding,
   paginateTransactionHistory,
   roundCurrency,
+  sortTransactionsNewestFirst,
   splitSettlementReceived,
+  summarizeEarningsPeriod,
+  type DailyProfitItem,
   type BackupData,
   type Transaction,
 } from '@/hooks/useDbQueries';
@@ -42,6 +50,189 @@ const wallets = ['GCASH', 'MAYA', 'MAYA_BUSINESS', 'MARIBANK', 'PHYSICAL_CASH'].
 }));
 
 describe('ledger safety rules', () => {
+  it('counts contractual debt earnings only when collected, on the payment date', () => {
+    const debtDate = new Date(2026, 2, 1, 10).toISOString();
+    const paymentDate = new Date(2026, 2, 4, 10).toISOString();
+    const paymentDateKey = [
+      new Date(paymentDate).getFullYear(),
+      String(new Date(paymentDate).getMonth() + 1).padStart(2, '0'),
+      String(new Date(paymentDate).getDate()).padStart(2, '0'),
+    ].join('-');
+    const unpaidDebt: Transaction = {
+      ...debt,
+      id: 21,
+      amount: 100,
+      fee: 10,
+      customer_id: 7,
+      created_at: debtDate,
+    };
+    const partialPayment: Transaction = {
+      ...payment,
+      id: 22,
+      amount: 5,
+      fee: 3,
+      customer_id: 7,
+      created_at: paymentDate,
+    };
+
+    expect(calculateCollectedDebtEarningsByDate([unpaidDebt, partialPayment]).get(paymentDateKey)).toBe(8);
+    expect(calculateDebtPaymentAllocation([unpaidDebt, partialPayment])).toMatchObject({
+      contractualEarningsPaid: 5,
+      pendingEarnings: 5,
+    });
+  });
+
+  it('continues FIFO collection after a targeted payment clears an earlier debt', () => {
+    const firstDebt: Transaction = {
+      ...debt,
+      id: 41,
+      amount: 10,
+      fee: 2,
+      customer_id: 9,
+      created_at: new Date(2026, 2, 1, 10).toISOString(),
+    };
+    const secondDebt: Transaction = {
+      ...firstDebt,
+      id: 42,
+      amount: 10,
+      fee: 3,
+      created_at: new Date(2026, 2, 2, 10).toISOString(),
+    };
+    const targetedPayment: Transaction = {
+      ...payment,
+      id: 43,
+      amount: 12,
+      fee: 0,
+      target_debt_id: firstDebt.id,
+      customer_id: 9,
+      created_at: new Date(2026, 2, 3, 10).toISOString(),
+    };
+    const fifoPayment: Transaction = {
+      ...targetedPayment,
+      id: 44,
+      amount: 1,
+      fee: 0,
+      target_debt_id: null,
+      created_at: new Date(2026, 2, 4, 10).toISOString(),
+    };
+    const earnings = calculateCollectedDebtEarningsByDate([
+      firstDebt,
+      secondDebt,
+      targetedPayment,
+      fifoPayment,
+    ]);
+    const dateKey = (value: string) => {
+      const date = new Date(value);
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    };
+
+    expect(earnings.get(dateKey(targetedPayment.created_at))).toBe(2);
+    expect(earnings.get(dateKey(fifoPayment.created_at))).toBe(1);
+  });
+
+  it('matches existing debt allocation, collected earnings, and oldest-debt results', () => {
+    const anotherDebt: Transaction = {
+      ...debt,
+      id: 31,
+      amount: 40,
+      fee: 4,
+      customer_id: 2,
+      created_at: '2026-01-03T00:00:00.000Z',
+    };
+    const targetedPayment: Transaction = {
+      ...payment,
+      id: 32,
+      amount: 20,
+      fee: 2,
+      customer_id: 2,
+      target_debt_id: anotherDebt.id,
+      created_at: '2026-01-04T00:00:00.000Z',
+    };
+    const orphanDebt: Transaction = {
+      ...debt,
+      id: 33,
+      amount: 25,
+      customer_id: null,
+      created_at: '2026-01-05T00:00:00.000Z',
+    };
+    const orphanPayment: Transaction = {
+      ...payment,
+      id: 34,
+      amount: 5,
+      fee: 3,
+      customer_id: null,
+      created_at: '2026-01-06T00:00:00.000Z',
+    };
+    const transactions = [targetedPayment, orphanPayment, debt, anotherDebt, payment, orphanDebt];
+    const analysis = analyzeDebtLedger(transactions);
+
+    expect(analysis.allocation).toEqual(calculateLedgerDebtAllocation(transactions));
+    expect(analysis.collectedEarningsByDate).toEqual(calculateCollectedDebtEarningsByDate(transactions));
+    for (const customerId of [1, 2]) {
+      const customerTransactions = transactions.filter(transaction => transaction.customer_id === customerId);
+      const summary = analysis.customers.get(customerId);
+      const balance = customerTransactions.reduce((total, transaction) => {
+        if (transaction.is_debt === 1) return total + transaction.amount + (transaction.deduct_fee === 1 ? 0 : transaction.fee);
+        if (transaction.type === 'DEBT_PAYMENT') return total - transaction.amount;
+        return total;
+      }, 0);
+      expect(summary?.balance).toBe(balance);
+      expect(summary?.oldestUnpaidDebtDate).toBe(calculateOldestUnpaidDebtDate(customerTransactions));
+    }
+  });
+
+  it('summarizes only earnings within the requested calendar date range', () => {
+    const dailyProfits: DailyProfitItem[] = [
+      { dateKey: '2026-03-01', date: 'Sun, 3/1', profit: 4, grossProfit: 4, netProfit: 4, txCount: 1 },
+      { dateKey: '2026-03-02', date: 'Mon, 3/2', profit: 8, grossProfit: 10, netProfit: 8, txCount: 2 },
+      { dateKey: '2026-03-03', date: 'Tue, 3/3', profit: 3, grossProfit: 6, netProfit: 3, txCount: 1 },
+    ];
+
+    expect(summarizeEarningsPeriod(
+      dailyProfits,
+      new Date(2026, 2, 2),
+      new Date(2026, 2, 4),
+    )).toEqual({ grossProfit: 16, netProfit: 11, txCount: 3 });
+  });
+
+  it('classifies settled balances consistently while preserving customer credits', () => {
+    expect(getDebtorBalanceStatus(0.02)).toBe('active');
+    expect(getDebtorBalanceStatus(-0.02)).toBe('credit');
+    expect(getDebtorBalanceStatus(0.01)).toBe('active');
+    expect(getDebtorBalanceStatus(-0.01)).toBe('credit');
+    expect(getDebtorBalanceStatus(0.001)).toBe('settled');
+    expect(getDebtorBalanceStatus(-0.001)).toBe('settled');
+  });
+
+  it('updates debt balances immediately while retaining accurate unpaid-debt metadata', () => {
+    const debtor = {
+      id: 8,
+      name: 'Customer',
+      phone: null,
+      balance: 150,
+      oldest_debt_date: '2026-01-01T00:00:00.000Z',
+      last_payment_date: null,
+      latest_tx_date: '2026-01-01T00:00:00.000Z',
+    };
+    const paidAt = '2026-02-01T00:00:00.000Z';
+
+    expect(applyOptimisticDebtPayment([debtor], 8, 40, paidAt)).toEqual([{
+      ...debtor,
+      balance: 110,
+      last_payment_date: paidAt,
+      latest_tx_date: paidAt,
+    }]);
+    expect(applyOptimisticDebtPayment([debtor], 8, 150, paidAt)).toEqual([{
+      ...debtor,
+      balance: 0,
+      oldest_debt_date: null,
+      last_payment_date: paidAt,
+      latest_tx_date: paidAt,
+    }]);
+    expect(applyOptimisticDebtPayment([debtor], 9, 40, paidAt)).toEqual([debtor]);
+    expect(debtor.balance).toBe(150);
+  });
+
   it('allocates a settlement to principal, contractual earnings, and extra profit', () => {
     expect(calculateDebtPaymentAllocation([debt, payment])).toEqual({
       principalPaid: 100,
@@ -65,6 +256,46 @@ describe('ledger safety rules', () => {
     expect(getDebtEntryOutstanding([debt, secondDebt, selectedPayment], debt.id)).toBe(110);
     expect(getDebtEntryOutstanding([debt, secondDebt, selectedPayment], secondDebt.id)).toBe(0);
     expect(calculateOldestUnpaidDebtDate([debt, secondDebt, selectedPayment])).toBe(debt.created_at);
+  });
+
+  it('calculates outstanding balances for all debt entries in one allocation pass', () => {
+    const secondDebt: Transaction = { ...debt, id: 3, amount: 50, fee: 0, created_at: '2026-01-02T00:00:00.000Z' };
+    const fifoPayment: Transaction = { ...payment, id: 4, amount: 30, fee: 0, created_at: '2026-01-03T00:00:00.000Z' };
+    const selectedPayment: Transaction = {
+      ...payment, id: 5, amount: 50, fee: 0, target_debt_id: secondDebt.id, created_at: '2026-01-04T00:00:00.000Z',
+    };
+    const transactions = [selectedPayment, secondDebt, fifoPayment, debt];
+    const outstandingByDebtId = getDebtOutstandingById(transactions);
+
+    expect(outstandingByDebtId.get(debt.id)).toBe(getDebtEntryOutstanding(transactions, debt.id));
+    expect(outstandingByDebtId.get(secondDebt.id)).toBe(getDebtEntryOutstanding(transactions, secondDebt.id));
+  });
+
+  it('finds the oldest unpaid debt after many targeted repayments in one ledger pass', () => {
+    const transactions: Transaction[] = [];
+    const debtCount = 2000;
+    for (let id = 1; id <= debtCount; id += 1) {
+      const createdAt = new Date(Date.UTC(2026, 0, id)).toISOString();
+      transactions.push({
+        ...debt,
+        id,
+        amount: 10,
+        fee: 0,
+        created_at: createdAt,
+      });
+      if (id < debtCount) {
+        transactions.push({
+          ...payment,
+          id: debtCount + id,
+          amount: 10,
+          fee: 0,
+          target_debt_id: id,
+          created_at: new Date(Date.UTC(2026, 0, id + 1, 12)).toISOString(),
+        });
+      }
+    }
+
+    expect(calculateOldestUnpaidDebtDate(transactions)).toBe(transactions[transactions.length - 1].created_at);
   });
 
   it('allocates FIFO and selected-debt payments without double-paying either debt', () => {
@@ -110,6 +341,86 @@ describe('ledger safety rules', () => {
     expect(secondPage.transactions.map((tx) => tx.id)).toEqual([2, 1]);
     expect([...firstPage.transactions, ...secondPage.transactions].map((tx) => tx.id)).toEqual([4, 3, 2, 1]);
     expect(firstPage.total).toBe(4);
+  });
+
+  it('orders a debtor ledger newest-first without mutating its source', () => {
+    const ledger = [
+      { ...debt, id: 2, created_at: '2026-01-02T00:00:00.000Z' },
+      { ...debt, id: 3, created_at: '2026-01-02T00:00:00.000Z' },
+      { ...debt, id: 1, created_at: '2026-01-01T00:00:00.000Z' },
+    ];
+
+    expect(sortTransactionsNewestFirst(ledger).map((transaction) => transaction.id)).toEqual([3, 2, 1]);
+    expect(ledger.map((transaction) => transaction.id)).toEqual([2, 3, 1]);
+  });
+
+  it('reuses the sorted web history index across pages and preserves matching totals', () => {
+    const history = Array.from({ length: 300 }, (_, index) => ({
+      ...debt,
+      id: index + 1,
+      amount: index % 2 === 0 ? 25 : 50,
+      created_at: new Date(Date.UTC(2026, 0, index + 1)).toISOString(),
+    })).reverse();
+    let sourceIterations = 0;
+    const historySource = new Proxy(history, {
+      get(target, property, receiver) {
+        if (property === Symbol.iterator) {
+          return function* () {
+            sourceIterations += 1;
+            yield* target;
+          };
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    const customerNamesById = new Map([[1, 'Ana Santos']]);
+    const firstPage = paginateTransactionHistory(
+      historySource,
+      customerNamesById,
+      { type: 'E_LOAD', search: 'ana' },
+      null,
+      20,
+    );
+    const secondPage = paginateTransactionHistory(
+      historySource,
+      customerNamesById,
+      { type: 'E_LOAD', search: 'ana' },
+      firstPage.nextCursor ?? null,
+      20,
+    );
+
+    expect(sourceIterations).toBe(1);
+    expect(firstPage.total).toBe(300);
+    expect(firstPage.transactions.map((transaction) => transaction.id)).toEqual(
+      Array.from({ length: 20 }, (_, index) => 300 - index),
+    );
+    expect(secondPage.transactions.map((transaction) => transaction.id)).toEqual(
+      Array.from({ length: 20 }, (_, index) => 280 - index),
+    );
+    expect(secondPage.nextCursor?.index).toBe(40);
+  });
+
+  it('applies wallet and date filters before paginating web history', () => {
+    const history: Transaction[] = [
+      { ...debt, id: 11, channel: 'GCASH', created_at: '2026-03-01T10:00:00.000Z' },
+      { ...debt, id: 12, channel: 'MAYA', created_at: '2026-03-02T10:00:00.000Z' },
+      { ...debt, id: 13, channel: 'GCASH', created_at: '2026-03-03T10:00:00.000Z' },
+    ];
+
+    const page = paginateTransactionHistory(
+      history,
+      new Map([[1, 'Ana']]),
+      {
+        type: 'ALL',
+        channel: 'GCASH',
+        startDate: '2026-03-02T00:00:00.000Z',
+        endDate: '2026-03-04T00:00:00.000Z',
+      },
+      null,
+    );
+
+    expect(page.total).toBe(1);
+    expect(page.transactions.map((transaction) => transaction.id)).toEqual([13]);
   });
 
   it('rejects debt payments with no customer or that are flagged as new debt', () => {

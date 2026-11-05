@@ -1,6 +1,6 @@
-import { DarkTheme, DefaultTheme, ThemeProvider, Stack } from 'expo-router';
+import { DarkTheme, ThemeProvider, Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useColorScheme } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 import * as SQLite from 'expo-sqlite';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { migrateDbIfNeeded } from '@/db/db';
@@ -15,20 +15,19 @@ const queryClient = new QueryClient({
     queries: {
       // Ledger writes explicitly invalidate affected queries. This prevents
       // avoidable re-queries while switching tabs without serving stale writes.
-      staleTime: 15_000,
+      staleTime: 2 * 60_000,
       gcTime: 10 * 60_000,
     },
   },
 });
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
-
   if (process.env.EXPO_OS === 'web') {
     return (
       <QueryClientProvider client={queryClient}>
-        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <ThemeProvider value={DarkTheme}>
           <ToastProvider>
+            <StatusBar style="light" />
             <AnimatedSplashOverlay />
             <Stack screenOptions={{ headerShown: false }} />
           </ToastProvider>
@@ -44,8 +43,9 @@ export default function RootLayout() {
         onInit={migrateDbIfNeeded} 
         useSuspense={false}
       >
-        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <ThemeProvider value={DarkTheme}>
           <ToastProvider>
+            <StatusBar style="light" />
             <AnimatedSplashOverlay />
             <Stack screenOptions={{ headerShown: false }} />
           </ToastProvider>

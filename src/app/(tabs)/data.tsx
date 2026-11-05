@@ -1,4 +1,5 @@
 import { useToast } from '@/components/toast';
+import { GoldButton } from '@/components/gold-button';
 import { BackupData, cleanErrorMessage, useDbQueries } from '@/hooks/useDbQueries';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as DocumentPicker from 'expo-document-picker';
@@ -21,8 +22,9 @@ import React, { useState, useMemo } from 'react';
 import { Alert, KeyboardAvoidingView, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ledgerColors as C } from '@/theme/ledger';
+import { useScreenFocus } from '@/hooks/useScreenFocus';
 
-// ─── Warm Architectural Design Tokens ─────────────────────────────────────────
+// ─── Obsidian & Gold Design ────────────────────────────────────────────────────
 const clearZeroIfNeeded = (value: string, setter: (value: string) => void) => {
   if (/^0(\.0+)?$/.test(value.trim())) {
     setter('');
@@ -89,6 +91,7 @@ function csvRow(...values: (string | number | null | undefined)[]): string {
 
 export default function DataScreen() {
   const { showToast } = useToast();
+  const isScreenFocused = useScreenFocus();
   const {
     useDashboardData,
     useUpdateWalletBalance,
@@ -101,8 +104,8 @@ export default function DataScreen() {
     useAddWallet,
     useDeleteWallet,
   } = useDbQueries();
-  const { data: dashboardData, refetch: refetchDashboard } = useDashboardData();
-  const { data: settings } = useSettings();
+  const { data: dashboardData, isLoading: isDashboardLoading, isError: isDashboardError, refetch: refetchDashboard } = useDashboardData(30, isScreenFocused);
+  const { data: settings, isError: isSettingsError, refetch: refetchSettings } = useSettings(isScreenFocused);
   const { refetch: refetchExportData } = useExportData();
   const { refetch: refetchBackupData } = useBackupData();
   const updateWalletMutation = useUpdateWalletBalance();
@@ -755,20 +758,38 @@ export default function DataScreen() {
     marginBottom: 20,
   };
 
-  if (!dashboardData) return null;
+  if (!dashboardData) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.bg, justifyContent: 'center', alignItems: 'center', padding: 24 }} edges={['top']}>
+        <Text style={{ color: C.text1, fontSize: 16, fontWeight: '700', textAlign: 'center' }}>
+          {isDashboardLoading ? 'Loading settings…' : isDashboardError ? 'Could not load settings data.' : 'Settings data is unavailable.'}
+        </Text>
+        {!isDashboardLoading && (
+          <TouchableOpacity onPress={() => refetchDashboard()} accessibilityRole="button" accessibilityLabel="Retry loading settings" style={{ marginTop: 16, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 12, backgroundColor: C.accent }}>
+            <Text style={{ color: C.bg, fontWeight: '800' }}>Try again</Text>
+          </TouchableOpacity>
+        )}
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}>
       <ScrollView
         style={{ flex: 1 }}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 160 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 88 }}
       >
-        {/* Header */}
-        <View style={{ marginTop: 24, marginBottom: 20 }}>
-          <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase' }}>Store Settings</Text>
-          <Text style={{ color: C.text1, fontSize: 26, fontWeight: '800', marginTop: 4 }}>Settings</Text>
-        </View>
+        {isSettingsError && (
+          <TouchableOpacity onPress={() => refetchSettings()} accessibilityRole="button" accessibilityLabel="Retry loading fee settings" style={{ backgroundColor: C.dangerDim, borderRadius: 12, padding: 12, marginBottom: 12 }}>
+            <Text style={{ color: C.danger, fontSize: 12, textAlign: 'center', fontWeight: '700' }}>Could not refresh fee settings. Showing the last available values. Tap to retry.</Text>
+          </TouchableOpacity>
+        )}
+        {isDashboardError && (
+          <TouchableOpacity onPress={() => refetchDashboard()} accessibilityRole="button" accessibilityLabel="Retry refreshing ledger status" style={{ backgroundColor: C.dangerDim, borderRadius: 12, padding: 12, marginBottom: 12 }}>
+            <Text style={{ color: C.danger, fontSize: 12, textAlign: 'center', fontWeight: '700' }}>Could not refresh ledger status. Showing the last available results. Tap to retry.</Text>
+          </TouchableOpacity>
+        )}
 
         {/* Database Stats Card */}
         <View style={CARD_STYLE}>
@@ -779,7 +800,7 @@ export default function DataScreen() {
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingTop: 16 }}>
             <View style={{ alignItems: 'center', flex: 1 }}>
               <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 6 }}>Transactions</Text>
-              <Text style={{ color: C.text1, fontSize: 16, fontWeight: '900' }}>{dashboardData.recentTransactions.length}</Text>
+              <Text style={{ color: C.text1, fontSize: 16, fontWeight: '900' }}>{dashboardData.transactionCount}</Text>
             </View>
             <View style={{ alignItems: 'center', flex: 1, borderLeftWidth: 1, borderRightWidth: 1, borderColor: C.border }}>
               <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 6 }}>Wallets</Text>
@@ -1038,24 +1059,12 @@ export default function DataScreen() {
             </View>
 
             {/* Save Settings Button */}
-            <TouchableOpacity
+            <GoldButton
               onPress={handleSaveSettings}
               disabled={isSavingSettings}
-              style={{
-                width: '100%',
-                paddingVertical: 14,
-                backgroundColor: C.accent,
-                borderRadius: 16,
-                justifyContent: 'center',
-                alignItems: 'center',
-                marginTop: 10,
-                opacity: isSavingSettings ? 0.6 : 1,
-              }}
-            >
-              <Text style={{ color: C.bg, fontSize: 12, fontWeight: '800', letterSpacing: 1.5, textTransform: 'uppercase' }}>
-                {isSavingSettings ? 'Saving Settings...' : 'Save Configured Fees'}
-              </Text>
-            </TouchableOpacity>
+              label={isSavingSettings ? 'Saving Settings...' : 'Save Configured Fees'}
+              style={{ width: '100%', marginTop: 10 }}
+            />
           </View>
         </View>
 
@@ -1122,7 +1131,7 @@ export default function DataScreen() {
               paddingVertical: 14,
               backgroundColor: C.bg,
               borderWidth: 1,
-              borderColor: 'rgba(230,168,23,0.35)',
+              borderColor: 'rgba(255,209,102,0.35)',
               borderRadius: 16,
               flexDirection: 'row',
               justifyContent: 'center',
@@ -1168,7 +1177,7 @@ export default function DataScreen() {
         >
           <KeyboardAvoidingView
             behavior='padding'
-            style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 20, backgroundColor: 'rgba(18, 16, 14, 0.85)' }}
+            style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 20, backgroundColor: 'rgba(8, 9, 15, 0.88)' }}
           >
             <View style={{ backgroundColor: C.surface, borderRadius: 28, borderWidth: 1, borderColor: C.border, padding: 24, paddingBottom: 28, maxHeight: '82%' }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
@@ -1310,7 +1319,7 @@ export default function DataScreen() {
         >
           <KeyboardAvoidingView
             behavior='padding'
-            style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 20, backgroundColor: 'rgba(18, 16, 14, 0.85)' }}
+            style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 20, backgroundColor: 'rgba(8, 9, 15, 0.88)' }}
           >
             <View style={{ backgroundColor: C.surface, borderRadius: 28, borderWidth: 1, borderColor: C.border, padding: 24, paddingBottom: 28 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
@@ -1379,7 +1388,7 @@ export default function DataScreen() {
         >
           <KeyboardAvoidingView
             behavior='padding'
-            style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 20, backgroundColor: 'rgba(18, 16, 14, 0.85)' }}
+            style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 20, backgroundColor: 'rgba(8, 9, 15, 0.88)' }}
           >
             <View style={{ backgroundColor: C.surface, borderRadius: 28, borderWidth: 1, borderColor: C.border, padding: 24, paddingBottom: 28 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>

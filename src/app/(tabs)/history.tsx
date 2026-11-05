@@ -4,11 +4,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useDbQueries, Transaction, cleanErrorMessage } from '@/hooks/useDbQueries';
 import { useToast } from '@/components/toast';
+import { GoldButton } from '@/components/gold-button';
 import * as Haptics from 'expo-haptics';
-import { Search, X, Trash2, Pencil, Check, Coins, ChevronRight } from 'lucide-react-native';
+import { Search, X, Trash2, Pencil, Check, Coins, ChevronRight, ChevronDown, SlidersHorizontal } from 'lucide-react-native';
 import { ledgerColors as C, ledgerRadius } from '@/theme/ledger';
+import { getHistoryDateBounds, type HistoryDateRange } from '@/utils/history-date-range';
+import { useScreenFocus } from '@/hooks/useScreenFocus';
 
-// ─── Warm Architectural Design Tokens ─────────────────────────────────────────
+// ─── Obsidian & Gold Design ────────────────────────────────────────────────────
 const clearZeroIfNeeded = (value: string, setter: (value: string) => void) => {
   if (/^0(\.0+)?$/.test(value.trim())) {
     setter('');
@@ -38,15 +41,15 @@ const transactionDateFormatter = new Intl.DateTimeFormat('en-US', {
 const getTxTypeDetails = (type: Transaction['type']) => {
   switch (type) {
     case 'CASH_IN':
-      return { label: 'Cash In', text: '#6fa3d8', bg: 'rgba(111,163,216,0.12)', border: 'rgba(111,163,216,0.2)' };
+      return { label: 'Cash In', text: C.info, bg: C.infoDim, border: 'rgba(96,165,250,0.2)' };
     case 'CASH_OUT':
-      return { label: 'Cash Out', text: C.success, bg: C.successDim, border: 'rgba(90,155,110,0.2)' };
+      return { label: 'Cash Out', text: C.success, bg: C.successDim, border: 'rgba(32,200,117,0.2)' };
     case 'E_LOAD':
-      return { label: 'E-Load', text: '#8b7cf8', bg: 'rgba(139,124,248,0.12)', border: 'rgba(139,124,248,0.2)' };
+      return { label: 'E-Load', text: C.accent, bg: C.accentDim, border: 'rgba(255,209,102,0.2)' };
     case 'TV_LOAD':
-      return { label: 'TV Load', text: '#ab70d8', bg: 'rgba(171,112,216,0.12)', border: 'rgba(171,112,216,0.2)' };
+      return { label: 'TV Load', text: '#73b8c5', bg: C.infoDim, border: 'rgba(96,165,250,0.2)' };
     case 'DEBT_PAYMENT':
-      return { label: 'Debt Pay', text: C.warning, bg: 'rgba(201,123,46,0.12)', border: 'rgba(201,123,46,0.2)' };
+      return { label: 'Debt Pay', text: C.warning, bg: 'rgba(255,176,32,0.14)', border: 'rgba(255,176,32,0.2)' };
   }
 };
 
@@ -176,6 +179,7 @@ const TransactionCard = React.memo(function TransactionCard({
 
 export default function HistoryScreen() {
   const { showToast } = useToast();
+  const isScreenFocused = useScreenFocus();
   const router = useRouter();
   const { editTxId } = useLocalSearchParams<{ editTxId?: string }>();
   const { 
@@ -188,8 +192,8 @@ export default function HistoryScreen() {
     useWallets
   } = useDbQueries();
   
-  const { data: customers = [], refetch: refetchCustomers } = useCustomers();
-  const { data: wallets = [] } = useWallets();
+  const { data: customers = [], refetch: refetchCustomers } = useCustomers(isScreenFocused);
+  const { data: wallets = [] } = useWallets(isScreenFocused);
   
   const deleteTransactionMutation = useDeleteTransaction();
   const { mutate: deleteTransaction } = deleteTransactionMutation;
@@ -199,14 +203,29 @@ export default function HistoryScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const debouncedSearchQuery = useDebouncedValue(searchQuery);
   const [selectedFilter, setSelectedFilter] = useState<FilterType>('ALL');
-  const historyQuery = useTransactionHistory({ type: selectedFilter, search: debouncedSearchQuery });
+  const [selectedDateRange, setSelectedDateRange] = useState<HistoryDateRange>('ALL');
+  const [selectedWallet, setSelectedWallet] = useState('ALL');
+  const [filterMenuOpen, setFilterMenuOpen] = useState(false);
+  const [draftFilter, setDraftFilter] = useState<FilterType>('ALL');
+  const [draftDateRange, setDraftDateRange] = useState<HistoryDateRange>('ALL');
+  const [draftWallet, setDraftWallet] = useState('ALL');
+  const activeFilterCount = Number(selectedFilter !== 'ALL') +
+    Number(selectedDateRange !== 'ALL') +
+    Number(selectedWallet !== 'ALL');
+  const dateBounds = getHistoryDateBounds(selectedDateRange);
+  const historyQuery = useTransactionHistory({
+    type: selectedFilter,
+    search: debouncedSearchQuery,
+    channel: selectedWallet,
+    ...dateBounds,
+  }, isScreenFocused);
   const historyTransactions = useMemo(
     () => historyQuery.data?.pages.flatMap((page) => page.transactions) ?? [],
     [historyQuery.data]
   );
   const totalHistoryTransactions = historyQuery.data?.pages[0]?.total ?? 0;
   const requestedEditTxId = editTxId ? Number(editTxId) : undefined;
-  const { data: requestedEditTx } = useTransactionById(requestedEditTxId);
+  const { data: requestedEditTx } = useTransactionById(requestedEditTxId, isScreenFocused);
 
   // Edit modal states
   const [editModalVisible, setEditModalVisible] = useState(false);
@@ -396,21 +415,12 @@ export default function HistoryScreen() {
       {/* Filters and List */}
       <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
         
-        {/* Header */}
-        <View style={{ marginVertical: 20 }}>
-          <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase' }}>Shop Auditing</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 }}>
-            <Text style={{ flexShrink: 1, color: C.text1, fontSize: 24, fontWeight: '800' }}>Transaction History</Text>
-            <View style={{ flexShrink: 0, marginLeft: 8, backgroundColor: C.accentDim, borderWidth: 1, borderColor: C.borderLight, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 5 }}>
-              <Text style={{ color: C.accent, fontSize: 10, fontWeight: '800' }}>Total Records: {totalHistoryTransactions}</Text>
-            </View>
-          </View>
-        </View>
-
         {/* Search Box */}
         <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 16 }}>
           <Search size={18} color={C.text3} />
           <TextInput
+            accessibilityLabel="Search transaction history"
+            accessibilityHint="Search customer names, wallets, or amounts"
             style={{ flex: 1, color: C.text1, marginLeft: 8, fontSize: 14 }}
             placeholder="Search by customer, wallet, amount..."
             placeholderTextColor={C.text3}
@@ -424,44 +434,153 @@ export default function HistoryScreen() {
           )}
         </View>
 
-        {/* Category Filter Scroll */}
-        <View style={{ marginBottom: 16 }}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row' }}>
-            {([
-              { key: 'ALL', label: 'All' },
-              { key: 'CASH_IN', label: 'Cash In' },
-              { key: 'CASH_OUT', label: 'Cash Out' },
-              { key: 'E_LOAD', label: 'E-Load' },
-              { key: 'TV_LOAD', label: 'TV Load' },
-              { key: 'DEBT_PAYMENT', label: 'Debt Pay' }
-            ] as const).map((filter) => {
-              const isActive = selectedFilter === filter.key;
-              return (
-                <TouchableOpacity
-                  key={filter.key}
-                  onPress={async () => {
-                    if (process.env.EXPO_OS !== 'web') {
-                      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    }
-                    setSelectedFilter(filter.key);
-                  }}
-                  style={{
-                    paddingHorizontal: 14,
-                    paddingVertical: 8,
-                    borderRadius: 12,
-                    marginRight: 8,
-                    borderWidth: 1,
-                    backgroundColor: isActive ? C.accentDim : C.surface,
-                    borderColor: isActive ? C.accent : C.border,
-                  }}
-                >
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: isActive ? C.accent : C.text2 }}>
-                    {filter.label}
+        <View style={{ position: 'relative', alignItems: 'flex-end', zIndex: filterMenuOpen ? 20 : 0, elevation: filterMenuOpen ? 20 : 0, marginBottom: 12 }}>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={activeFilterCount ? `${activeFilterCount} history filters applied` : 'Filter transaction history'}
+            accessibilityState={{ expanded: filterMenuOpen }}
+            onPress={() => {
+              if (!filterMenuOpen) {
+                setDraftFilter(selectedFilter);
+                setDraftDateRange(selectedDateRange);
+                setDraftWallet(selectedWallet);
+              }
+              setFilterMenuOpen((open) => !open);
+            }}
+            style={{
+              minHeight: 38,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 7,
+              paddingHorizontal: 12,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: filterMenuOpen || activeFilterCount ? C.accent : C.border,
+              backgroundColor: filterMenuOpen || activeFilterCount ? C.accentDim : C.surface,
+            }}
+          >
+            <SlidersHorizontal size={14} color={filterMenuOpen || activeFilterCount ? C.accent : C.text2} />
+            <Text style={{ color: filterMenuOpen || activeFilterCount ? C.accent : C.text2, fontSize: 11, fontWeight: '700' }}>
+              Filters{activeFilterCount ? ` · ${activeFilterCount}` : ''}
+            </Text>
+            <ChevronDown size={13} color={filterMenuOpen || activeFilterCount ? C.accent : C.text2} />
+          </TouchableOpacity>
+          {filterMenuOpen && (
+            <View style={{
+              position: 'absolute',
+              top: 44,
+              right: 0,
+              width: 320,
+              maxWidth: '100%',
+              padding: 12,
+              gap: 10,
+              borderRadius: 14,
+              backgroundColor: C.surface,
+              borderWidth: 1,
+              borderColor: C.border,
+              zIndex: 30,
+              elevation: 30,
+            }}>
+              {([
+                {
+                  title: 'Type',
+                  value: draftFilter,
+                  setValue: (value: string) => setDraftFilter(value as FilterType),
+                  options: [
+                    { key: 'ALL', label: 'All' },
+                    { key: 'CASH_IN', label: 'Cash In' },
+                    { key: 'CASH_OUT', label: 'Cash Out' },
+                    { key: 'E_LOAD', label: 'E-Load' },
+                    { key: 'TV_LOAD', label: 'TV Load' },
+                    { key: 'DEBT_PAYMENT', label: 'Debt Pay' },
+                  ],
+                },
+                {
+                  title: 'Date',
+                  value: draftDateRange,
+                  setValue: (value: string) => setDraftDateRange(value as HistoryDateRange),
+                  options: [
+                    { key: 'ALL', label: 'All time' },
+                    { key: 'TODAY', label: 'Today' },
+                    { key: '7D', label: '7 days' },
+                    { key: '30D', label: '30 days' },
+                  ],
+                },
+                {
+                  title: 'Wallet',
+                  value: draftWallet,
+                  setValue: setDraftWallet,
+                  options: [
+                    { key: 'ALL', label: 'All wallets' },
+                    ...wallets.map((wallet: { channel: string }) => ({
+                      key: wallet.channel,
+                      label: getWalletLabel(wallet.channel),
+                    })),
+                  ],
+                },
+              ] as const).map((group) => (
+                <View key={group.title} style={{ gap: 6 }}>
+                  <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase' }}>
+                    {group.title}
                   </Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    {group.options.map((option) => {
+                      const isActive = group.value === option.key;
+                      return (
+                        <TouchableOpacity
+                          key={option.key}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${group.title}: ${option.label}`}
+                          accessibilityState={{ selected: isActive }}
+                          onPress={() => group.setValue(option.key)}
+                          style={{
+                            minHeight: 32,
+                            justifyContent: 'center',
+                            paddingHorizontal: 9,
+                            borderRadius: 9,
+                            borderWidth: 1,
+                            borderColor: isActive ? C.accent : C.border,
+                            backgroundColor: isActive ? C.accentDim : C.bg,
+                          }}
+                        >
+                          <Text style={{ color: isActive ? C.accent : C.text2, fontSize: 10, fontWeight: '700' }}>
+                            {option.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              ))}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 2 }}>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear history filters"
+                  onPress={() => {
+                    setDraftFilter('ALL');
+                    setDraftDateRange('ALL');
+                    setDraftWallet('ALL');
+                  }}
+                  style={{ minHeight: 36, justifyContent: 'center', paddingHorizontal: 8 }}
+                >
+                  <Text style={{ color: C.text3, fontSize: 11, fontWeight: '700' }}>Clear all</Text>
                 </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel="Apply history filters"
+                  onPress={() => {
+                    setSelectedFilter(draftFilter);
+                    setSelectedDateRange(draftDateRange);
+                    setSelectedWallet(draftWallet);
+                    setFilterMenuOpen(false);
+                  }}
+                  style={{ minHeight: 36, justifyContent: 'center', paddingHorizontal: 14, borderRadius: 10, backgroundColor: C.accent }}
+                >
+                  <Text style={{ color: C.bg, fontSize: 11, fontWeight: '800' }}>Apply filters</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
         </View>
 
         <Text style={{ color: C.text3, fontSize: 11, fontWeight: '600', marginBottom: 10 }}>
@@ -472,6 +591,13 @@ export default function HistoryScreen() {
         {historyQuery.isLoading ? (
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
             <Text style={{ color: C.text3, fontSize: 13 }}>Loading transaction records...</Text>
+          </View>
+        ) : historyQuery.isError && !historyQuery.data ? (
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40 }}>
+            <Text style={{ color: C.danger, fontSize: 14, fontWeight: '700', textAlign: 'center' }}>Could not load transaction history.</Text>
+            <TouchableOpacity onPress={() => historyQuery.refetch()} accessibilityRole="button" accessibilityLabel="Retry loading transaction history" style={{ marginTop: 14, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 12, backgroundColor: C.accent }}>
+              <Text style={{ color: C.bg, fontWeight: '800' }}>Try again</Text>
+            </TouchableOpacity>
           </View>
         ) : (
           <FlatList
@@ -489,7 +615,7 @@ export default function HistoryScreen() {
             onEndReachedThreshold={0.4}
             style={{ flex: 1 }} 
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: 160 }}
+            contentContainerStyle={{ paddingBottom: 88 }}
             ListEmptyComponent={
               <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40 }}>
                 <Text style={{ color: C.text2, fontSize: 14, fontWeight: '700', marginBottom: 4 }}>No transaction records found</Text>
@@ -499,6 +625,10 @@ export default function HistoryScreen() {
             ListFooterComponent={
               historyQuery.isFetchingNextPage ? (
                 <Text style={{ color: C.text3, fontSize: 12, textAlign: 'center', paddingVertical: 16 }}>Loading more transactions...</Text>
+              ) : historyQuery.isFetchNextPageError ? (
+                <TouchableOpacity onPress={() => historyQuery.fetchNextPage()} accessibilityRole="button" accessibilityLabel="Retry loading more transactions" style={{ paddingVertical: 16 }}>
+                  <Text style={{ color: C.danger, fontSize: 12, textAlign: 'center' }}>Could not load more transactions. Tap to retry.</Text>
+                </TouchableOpacity>
               ) : historyTransactions.length > 0 && !historyQuery.hasNextPage ? (
                 <Text style={{ color: C.text3, fontSize: 11, textAlign: 'center', paddingVertical: 16 }}>All transactions loaded</Text>
               ) : null
@@ -672,7 +802,7 @@ export default function HistoryScreen() {
       >
         <KeyboardAvoidingView
           behavior='padding'
-          style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 20, backgroundColor: 'rgba(18, 16, 14, 0.85)' }}
+          style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 20, backgroundColor: 'rgba(8, 9, 15, 0.88)' }}
         >
           <View style={{ backgroundColor: C.surface, borderRadius: 28, borderWidth: 1, borderColor: C.border, padding: 24, paddingBottom: 28 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
@@ -849,26 +979,13 @@ export default function HistoryScreen() {
               )}
 
               {/* Save changes button */}
-              <TouchableOpacity
+              <GoldButton
                 onPress={handleSaveChanges}
                 disabled={isSaving}
-                style={{
-                  width: '100%',
-                  paddingVertical: 14,
-                  backgroundColor: C.accent,
-                  borderRadius: 16,
-                  flexDirection: 'row',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  marginTop: 10,
-                  opacity: isSaving ? 0.6 : 1
-                }}
-              >
-                <Check size={18} color={C.bg} style={{ marginRight: 6 }} />
-                <Text style={{ color: C.bg, fontWeight: '800', fontSize: 12, letterSpacing: 1.5, textTransform: 'uppercase' }}>
-                  {isSaving ? 'Saving...' : 'Save Log Corrections'}
-                </Text>
-              </TouchableOpacity>
+                label={isSaving ? 'Saving...' : 'Save Log Corrections'}
+                leadingIcon={<Check size={18} color="#17140d" />}
+                style={{ width: '100%', marginTop: 10 }}
+              />
 
             </ScrollView>
           </View>
