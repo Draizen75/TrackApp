@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TrackApp — Glossy Gold UI Preview</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --page: #08090f;
+      --surface: #11141f;
+      --surface-soft: #1b1f29;
+      --ink: #f7f3e3;
+      --muted: #999ba3;
+      --line: #2d3039;
+      --accent: #ffd166;
+      --accent-soft: #302719;
+      --highlight: #ffb020;
+      --positive: #20c875;
+      --negative: #ef4444;
+      --shadow: 0 18px 50px #00000066;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--page); color: var(--ink); transition: background .2s, color .2s; }
+    button, input { font: inherit; }
+    button { color: inherit; cursor: pointer; }
+
+    .preview-header {
+      max-width: 1180px; margin: auto; padding: 28px 28px 18px;
+      display: flex; align-items: flex-end; justify-content: space-between; gap: 20px;
+    }
+    .eyebrow { color: var(--muted); font-size: 11px; font-weight: 750; letter-spacing: .14em; text-transform: uppercase; }
+    h1 { margin: 5px 0 0; font-size: 25px; letter-spacing: -.04em; }
+    .subtitle { margin: 7px 0 0; color: var(--muted); font-size: 13px; }
+    .theme-picker { display: flex; flex-wrap: wrap; gap: 8px; }
+    .theme-button {
+      border: 1px solid var(--line); background: var(--surface); padding: 9px 12px;
+      border-radius: 999px; font-size: 12px; font-weight: 700;
+    }
+    .theme-button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+
+    .layout { max-width: 1180px; margin: auto; padding: 8px 28px 40px; display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 22px; align-items: start; }
+    .device {
+      min-height: 730px; padding: 22px; background: var(--surface); border: 1px solid var(--line);
+      border-radius: 30px; box-shadow: var(--shadow); overflow: hidden;
+    }
+    .topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 24px; }
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .brand-mark { width: 36px; height: 36px; border-radius: 12px; background: var(--accent); color: var(--surface); display: grid; place-items: center; font-weight: 900; }
+    .brand-name { font-size: 14px; font-weight: 800; letter-spacing: -.02em; }
+    .store-name { margin-top: 2px; color: var(--muted); font-size: 11px; }
+    .avatar { width: 35px; height: 35px; border: 1px solid var(--line); border-radius: 50%; display: grid; place-items: center; color: var(--accent); font-size: 12px; font-weight: 800; }
+    h2 { margin: 4px 0 0; font-size: 24px; letter-spacing: -.04em; }
+    h3 { margin: 0; font-size: 15px; letter-spacing: -.02em; }
+    .muted { color: var(--muted); }
+    .small { font-size: 12px; }
+    .section { margin-top: 22px; }
+    .section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 11px; }
+    .section-head h3 { font-size: 14px; }
+    .link-button { border: 0; background: transparent; padding: 4px; color: var(--accent); font-size: 12px; font-weight: 750; }
+    .button {
+      border: 1px solid #fff7e4c7; border-radius: 12px; padding: 11px 14px;
+      background: linear-gradient(135deg, #fff2bb, var(--accent) 48%, var(--highlight));
+      color: #17140d; font-size: 12px; font-weight: 800; box-shadow: 0 4px 16px #ffb02033;
+    }
+    .button.secondary { color: var(--accent); background: var(--accent-soft); }
+    .button.ghost { color: var(--ink); background: var(--surface-soft); border: 1px solid var(--line); }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 16px; }
+    .hero-card { background: linear-gradient(135deg, #25232a, #11141f); color: var(--ink); padding: 20px; border: 1px solid var(--accent); box-shadow: 0 6px 24px #ffb0201f; }
+    .hero-card .eyebrow, .hero-card .muted { color: var(--muted); }
+    .hero-amount { margin: 9px 0 14px; font-size: 34px; font-weight: 850; letter-spacing: -.05em; font-variant-numeric: tabular-nums; }
+    .hero-footer { display: flex; justify-content: space-between; align-items: center; padding-top: 12px; border-top: 1px solid #ffffff37; font-size: 12px; }
+    .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .metric { padding: 13px; border: 1px solid var(--line); border-radius: 15px; background: var(--surface); }
+    .metric-label { color: var(--muted); font-size: 10px; font-weight: 750; letter-spacing: .07em; text-transform: uppercase; }
+    .metric-value { margin-top: 7px; font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .wallet-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+    .wallet { min-height: 78px; padding: 12px; border-radius: 15px; background: var(--surface-soft); }
+    .wallet-name { color: var(--muted); font-size: 11px; font-weight: 700; }
+    .wallet-amount { margin-top: 10px; font-size: 15px; font-weight: 800; }
+    .row { display: flex; align-items: center; gap: 12px; }
+    .row + .row { border-top: 1px solid var(--line); margin-top: 11px; padding-top: 11px; }
+    .row-main { min-width: 0; flex: 1; }
+    .row-title { font-size: 13px; font-weight: 750; }
+    .row-subtitle { margin-top: 3px; color: var(--muted); font-size: 11px; }
+    .row-value { text-align: right; white-space: nowrap; font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .positive { color: var(--positive); }
+    .negative { color: var(--negative); }
+    .pill { display: inline-flex; align-items: center; padding: 5px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 10px; font-weight: 750; }
+    .search { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 13px; color: var(--ink); background: var(--surface); outline-color: var(--accent); }
+    .filters { display: flex; gap: 7px; overflow-x: auto; padding: 2px 0 8px; }
+    .filter { border: 1px solid var(--line); border-radius: 999px; padding: 8px 11px; background: var(--surface); color: var(--muted); white-space: nowrap; font-size: 11px; font-weight: 700; }
+    .filter.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+    .form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    .field label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 11px; font-weight: 750; }
+    .field input { width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 12px; color: var(--ink); background: var(--surface-soft); outline-color: var(--accent); }
+    .segmented { display: flex; padding: 4px; background: var(--surface-soft); border: 1px solid var(--line); border-radius: 13px; gap: 3px; }
+    .segment { flex: 1; border: 0; border-radius: 9px; background: transparent; padding: 9px 4px; font-size: 11px; font-weight: 750; color: var(--muted); }
+    .segment.active { background: var(--surface); color: var(--accent); box-shadow: 0 1px 5px #00000012; }
+    .check-row { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+    .check { width: 18px; height: 18px; accent-color: var(--accent); }
+    .chart { display: flex; align-items: flex-end; height: 115px; gap: 10px; padding: 10px 0 0; }
+    .bar-wrap { display: flex; flex: 1; height: 100%; flex-direction: column; justify-content: flex-end; align-items: center; gap: 7px; color: var(--muted); font-size: 10px; }
+    .bar { width: min(28px, 70%); min-height: 7px; border-radius: 7px 7px 3px 3px; background: var(--accent); opacity: .78; }
+    .bar.today { opacity: 1; background: var(--highlight); }
+    .nav { display: flex; justify-content: space-around; gap: 4px; border-top: 1px solid var(--line); margin: 24px -22px -22px; padding: 12px 10px 14px; background: var(--surface); position: sticky; bottom: -1px; }
+    .nav-button { min-width: 52px; border: 0; background: transparent; padding: 7px 5px; border-radius: 12px; color: var(--muted); font-size: 10px; font-weight: 700; }
+    .nav-button .nav-icon { display: block; margin-bottom: 4px; font-size: 16px; }
+    .nav-button.active { color: var(--accent); background: var(--accent-soft); }
+    .settings-list .row { padding: 12px 0; }
+    .settings-icon { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 11px; background: var(--accent-soft); color: var(--accent); }
+    .side-panel { position: sticky; top: 20px; }
+    .side-panel .card + .card { margin-top: 12px; }
+    .side-panel h3 { margin-bottom: 10px; }
+    .side-panel p, .side-panel li { color: var(--muted); font-size: 12px; line-height: 1.55; }
+    .side-panel ul { margin: 8px 0 0; padding-left: 18px; }
+    .screen { display: none; }
+    .screen.active { display: block; animation: appear .18s ease-out; }
+    @keyframes appear { from { opacity: .5; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+    @media (max-width: 760px) {
+      .preview-header { align-items: flex-start; flex-direction: column; padding: 20px 16px 12px; gap: 14px; }
+      .theme-picker { width: 100%; }
+      .layout { display: block; padding: 6px 10px 22px; }
+      .device { min-height: calc(100dvh - 166px); padding: 17px; border-radius: 24px; }
+      .nav { margin: 22px -17px -17px; }
+      .side-panel { position: static; margin-top: 14px; }
+      .wallet-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .metrics { gap: 7px; }
+      .metric { padding: 10px 8px; }
+      .metric-value { font-size: 15px; }
+      .hero-amount { font-size: 30px; }
+    }
+  </style>
+</head>
+<body data-theme="gold">
+  <header class="preview-header">
+    <div>
+      <div class="eyebrow">TrackApp · design exploration</div>
+      <h1>Glossy black &amp; gold design</h1>
+      <p class="subtitle">Five-page interactive preview of the selected visual system. This is a mock—not the live app.</p>
+    </div>
+    <div class="theme-picker" role="group" aria-label="Choose a color theme">
+      <button class="theme-button" data-theme-choice="gold" aria-pressed="true">Glossy Gold</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="device" aria-label="Interactive application mockup">
+      <div class="topbar">
+        <div class="brand">
+          <div class="brand-mark">T</div>
+          <div><div class="brand-name">TrackApp</div><div class="store-name">Mabuhay Mini Mart</div></div>
+        </div>
+        <div class="avatar" aria-label="Store profile">MM</div>
+      </div>
+
+      <section id="dashboard" class="screen active">
+        <div class="card hero-card">
+          <div class="eyebrow">Earnings collected</div>
+          <div class="hero-amount">₱2,480.00</div>
+          <div class="hero-footer"><span>Today · 18 transactions</span><strong>↑ 12% this week</strong></div>
+        </div>
+        <div class="section metrics">
+          <div class="metric"><div class="metric-label">To collect</div><div class="metric-value">₱8,250</div></div>
+          <div class="metric"><div class="metric-label">Cash float</div><div class="metric-value">₱14,200</div></div>
+          <div class="metric"><div class="metric-label">Digital float</div><div class="metric-value">₱22,600</div></div>
+        </div>
+        <div class="section">
+          <div class="section-head"><h3>Float balances</h3><button class="link-button" data-open="settings">Manage</button></div>
+          <div class="wallet-grid">
+            <div class="wallet"><div class="wallet-name">GCash</div><div class="wallet-amount">₱12,400</div></div>
+            <div class="wallet"><div class="wallet-name">Maya</div><div class="wallet-amount">₱6,200</div></div>
+            <div class="wallet"><div class="wallet-name">Cash box</div><div class="wallet-amount">₱14,200</div></div>
+          </div>
+        </div>
+        <div class="section">
+          <div class="section-head"><h3>Profit trend</h3><button class="button ghost">Last 7 days⌄</button></div>
+          <div class="chart" aria-label="Daily earnings chart">
+            <div class="bar-wrap"><div class="bar" style="height:34%"></div>Thu</div>
+            <div class="bar-wrap"><div class="bar" style="height:58%"></div>Fri</div>
+            <div class="bar-wrap"><div class="bar" style="height:45%"></div>Sat</div>
+            <div class="bar-wrap"><div class="bar" style="height:72%"></div>Sun</div>
+            <div class="bar-wrap"><div class="bar" style="height:51%"></div>Mon</div>
+            <div class="bar-wrap"><div class="bar" style="height:84%"></div>Tue</div>
+            <div class="bar-wrap"><div class="bar today" style="height:68%"></div>Today</div>
+          </div>
+        </div>
+        <div class="section">
+          <div class="section-head"><h3>Recent activity</h3><button class="link-button" data-open="history">See all</button></div>
+          <div class="card">
+            <div class="row"><div class="row-main"><div class="row-title">GCash cash-in · Ana Reyes</div><div class="row-subtitle">Today, 6:42 PM · Fee ₱20</div></div><div class="row-value">₱2,000</div></div>
+            <div class="row"><div class="row-main"><div class="row-title">E-load · Walk-in</div><div class="row-subtitle">Today, 6:18 PM · Fee ₱10</div></div><div class="row-value">₱500</div></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="entry" class="screen">
+        <div class="section">
+          <div class="section-head"><h3>What are you doing?</h3></div>
+          <div class="segmented">
+            <button class="segment active">Cash in</button><button class="segment">Cash out</button><button class="segment">E-load</button><button class="segment">TV load</button>
+          </div>
+        </div>
+        <div class="section form-grid">
+          <div class="field"><label for="amount">Customer amount</label><input id="amount" value="1,000.00" inputmode="decimal"></div>
+          <div class="field"><label for="fee">Service fee</label><input id="fee" value="20.00" inputmode="decimal"></div>
+        </div>
+        <div class="section">
+          <div class="section-head"><h3>Payment wallet</h3><span class="small muted">Where money moves</span></div>
+          <div class="segmented"><button class="segment active">GCash</button><button class="segment">Maya</button><button class="segment">Cash</button></div>
+        </div>
+        <div class="section card">
+          <div class="section-head"><h3>Quick total</h3><span class="pill">Customer pays</span></div>
+          <div class="row"><div class="row-main"><div class="row-title">Service amount</div></div><div class="row-value">₱1,000.00</div></div>
+          <div class="row"><div class="row-main"><div class="row-title">Your fee</div></div><div class="row-value positive">+ ₱20.00</div></div>
+          <div class="row"><div class="row-main"><div class="row-title">Total collected</div></div><div class="row-value">₱1,020.00</div></div>
+        </div>
+        <div class="section">
+          <label class="check-row"><input class="check" type="checkbox"> Deduct fee from principal</label>
+          <label class="check-row"><input class="check" type="checkbox" checked> Add this transaction to a customer's balance</label>
+        </div>
+        <div class="section field"><label for="customer">Customer</label><input id="customer" value="Ana Reyes" placeholder="Search or add customer"></div>
+        <div class="section field"><label for="phone">Phone number <span class="muted">(optional)</span></label><input id="phone" value="0917 555 0182" inputmode="tel"></div>
+        <button class="button section" style="width:100%;padding:14px">Review & save transaction</button>
+        <p class="small muted" style="text-align:center">You'll be able to confirm the amount before it is added to the ledger.</p>
+      </section>
+
+      <section id="debtors" class="screen">
+        <div class="card">
+          <div class="eyebrow">Outstanding balance</div><div class="hero-amount" style="color:var(--accent);margin-bottom:4px">₱8,250.00</div>
+          <div class="small muted">Across 6 customers · 2 need follow-up</div>
+        </div>
+        <div class="section"><input class="search" placeholder="Search customers"></div>
+        <div class="section filters"><button class="filter active">Owing · 6</button><button class="filter">Settled · 12</button><button class="filter">Credit · 1</button></div>
+        <div class="section-head"><h3>Needs attention</h3><button class="link-button">Oldest first⌄</button></div>
+        <div class="card">
+          <div class="row">
+            <div class="avatar">AR</div><div class="row-main"><div class="row-title">Ana Reyes <span class="pill">12 days</span></div><div class="row-subtitle">Last payment Oct 30 · 2 open items</div></div><div class="row-value">₱2,400</div>
+          </div>
+          <div class="row">
+            <div class="avatar">JM</div><div class="row-main"><div class="row-title">Jose Mendoza <span class="pill">8 days</span></div><div class="row-subtitle">Last payment Oct 28 · 1 open item</div></div><div class="row-value">₱1,850</div>
+          </div>
+          <div class="row">
+            <div class="avatar">LS</div><div class="row-main"><div class="row-title">Liza Santos</div><div class="row-subtitle">Last payment Nov 2 · 3 open items</div></div><div class="row-value">₱1,200</div>
+          </div>
+        </div>
+        <div class="section"><div class="section-head"><h3>Good standing</h3><button class="link-button">View all</button></div><div class="card row"><div class="avatar">RC</div><div class="row-main"><div class="row-title">Ramon Cruz</div><div class="row-subtitle">Next follow-up in 14 days</div></div><div class="row-value">₱450</div></div></div>
+      </section>
+
+      <section id="history" class="screen">
+        <div class="metrics">
+          <div class="metric"><div class="metric-label">Today</div><div class="metric-value">18</div></div>
+          <div class="metric"><div class="metric-label">Fees</div><div class="metric-value">₱2,480</div></div>
+          <div class="metric"><div class="metric-label">All records</div><div class="metric-value">1,284</div></div>
+        </div>
+        <div class="section"><input class="search" placeholder="Search name, amount, or wallet"></div>
+        <div class="section filters"><button class="filter active">All</button><button class="filter">Cash in</button><button class="filter">Cash out</button><button class="filter">E-load</button><button class="filter">Debt payment</button></div>
+        <div class="section-head"><h3>Today · Nov 4</h3><button class="link-button">Date range⌄</button></div>
+        <div class="card">
+          <div class="row"><span class="pill">Cash in</span><div class="row-main"><div class="row-title">Ana Reyes · GCash</div><div class="row-subtitle">6:42 PM · Fee ₱20</div></div><div class="row-value">₱2,000</div></div>
+          <div class="row"><span class="pill">E-load</span><div class="row-main"><div class="row-title">Walk-in · Maya</div><div class="row-subtitle">6:18 PM · Fee ₱10</div></div><div class="row-value">₱500</div></div>
+          <div class="row"><span class="pill">Debt pay</span><div class="row-main"><div class="row-title">Jose Mendoza · Cash</div><div class="row-subtitle">5:55 PM · Principal ₱500</div></div><div class="row-value positive">−₱500</div></div>
+          <div class="row"><span class="pill">Cash out</span><div class="row-main"><div class="row-title">Walk-in · Cash box</div><div class="row-subtitle">5:20 PM · Fee ₱20</div></div><div class="row-value">₱1,000</div></div>
+        </div>
+        <div class="section" style="text-align:center"><button class="button ghost">Load more transactions</button></div>
+      </section>
+
+      <section id="settings" class="screen">
+        <div class="card">
+          <div class="section-head"><h3>Accounts & float</h3><button class="link-button">＋ Add account</button></div>
+          <div class="settings-list">
+            <div class="row"><div class="settings-icon">₱</div><div class="row-main"><div class="row-title">Cash box</div><div class="row-subtitle">Physical cash</div></div><div class="row-value">₱14,200</div></div>
+            <div class="row"><div class="settings-icon">G</div><div class="row-main"><div class="row-title">GCash</div><div class="row-subtitle">Digital wallet</div></div><div class="row-value">₱12,400</div></div>
+            <div class="row"><div class="settings-icon">M</div><div class="row-main"><div class="row-title">Maya</div><div class="row-subtitle">Digital wallet</div></div><div class="row-value">₱6,200</div></div>
+          </div>
+        </div>
+        <div class="section card">
+          <div class="section-head"><h3>Fee rules</h3><button class="link-button">Edit</button></div>
+          <div class="row"><div class="row-main"><div class="row-title">Cash-in / cash-out</div><div class="row-subtitle">₱10 per ₱500</div></div><span class="pill">Active</span></div>
+          <div class="row"><div class="row-main"><div class="row-title">E-load</div><div class="row-subtitle">₱5 below ₱99 · ₱10 above</div></div><span class="pill">Active</span></div>
+        </div>
+        <div class="section card">
+          <div class="section-head"><h3>Backup & data</h3></div>
+          <div class="settings-list">
+            <div class="row"><div class="settings-icon">↧</div><div class="row-main"><div class="row-title">Export ledger</div><div class="row-subtitle">CSV or shareable report</div></div><span class="muted">›</span></div>
+            <div class="row"><div class="settings-icon">▣</div><div class="row-main"><div class="row-title">Create backup</div><div class="row-subtitle">Last backup: Oct 28</div></div><span class="muted">›</span></div>
+          </div>
+        </div>
+      </section>
+
+      <nav class="nav" aria-label="Main navigation">
+        <button class="nav-button active" data-screen="dashboard"><span class="nav-icon">⌂</span>Home</button>
+        <button class="nav-button" data-screen="entry"><span class="nav-icon">＋</span>New</button>
+        <button class="nav-button" data-screen="debtors"><span class="nav-icon">♙</span>Debtors</button>
+        <button class="nav-button" data-screen="history"><span class="nav-icon">◷</span>History</button>
+        <button class="nav-button" data-screen="settings"><span class="nav-icon">⚙</span>Settings</button>
+      </nav>
+    </section>
+
+    <aside class="side-panel">
+      <div class="card">
+        <div class="eyebrow">Review focus</div>
+        <h3 style="margin-top:7px">Flow before polish</h3>
+        <p>Use the bottom navigation to review each page. The mock uses sample transactions so the hierarchy can be judged in a populated state.</p>
+        <ul>
+          <li>Is the key action easy to spot?</li>
+          <li>Are balances and fees easy to scan?</li>
+          <li>Does the color feel comfortable and trustworthy?</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="eyebrow">Proposed redesign plan</div>
+        <ol>
+          <li>Agree on a color and typography direction.</li>
+          <li>Finalize dashboard and quick-entry hierarchy.</li>
+          <li>Apply shared components and spacing across all five pages.</li>
+          <li>Check empty, populated, loading, error, and small-screen states.</li>
+          <li>Validate with app tests and platform screenshots.</li>
+        </ol>
+      </div>
+      <div class="card">
+        <div class="eyebrow">Not production UI</div>
+        <p style="margin-bottom:0">No app source files or data are changed by this preview. The selected theme is for discussion and does not persist after reload.</p>
+      </div>
+    </aside>
+  </main>
+  <script>
+    const screens = [...document.querySelectorAll('.screen')];
+    const navButtons = [...document.querySelectorAll('.nav-button')];
+    const showScreen = (name) => {
+      screens.forEach((screen) => screen.classList.toggle('active', screen.id === name));
+      navButtons.forEach((button) => button.classList.toggle('active', button.dataset.screen === name));
+    };
+    navButtons.forEach((button) => button.addEventListener('click', () => showScreen(button.dataset.screen)));
+    document.querySelectorAll('[data-open]').forEach((button) => button.addEventListener('click', () => showScreen(button.dataset.open)));
+    document.querySelectorAll('[data-theme-choice]').forEach((button) => {
+      button.addEventListener('click', () => {
+        document.body.dataset.theme = button.dataset.themeChoice;
+        document.querySelectorAll('[data-theme-choice]').forEach((choice) => {
+          choice.setAttribute('aria-pressed', String(choice === button));
+        });
+      });
+    });
+    document.querySelectorAll('.segment').forEach((button) => {
+      button.addEventListener('click', () => {
+        const group = button.parentElement;
+        group.querySelectorAll('.segment').forEach((item) => item.classList.toggle('active', item === button));
+      });
+    });
+    document.querySelectorAll('.filters').forEach((group) => {
+      group.querySelectorAll('.filter').forEach((button) => button.addEventListener('click', () => {
+        group.querySelectorAll('.filter').forEach((item) => item.classList.toggle('active', item === button));
+      }));
+    });
+  </script>
+</body>
+</html>

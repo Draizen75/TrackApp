@@ -7,7 +7,7 @@ import {
   Settings 
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ledgerColors as C, ledgerRadius } from '@/theme/ledger';
+import { ledgerColors as C } from '@/theme/ledger';
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
@@ -18,30 +18,30 @@ export default function TabsLayout() {
         headerShown: false,
         tabBarStyle: {
           position: 'absolute',
-          bottom: insets.bottom > 0 ? insets.bottom + 12 : 16,
-          left: 16,
-          right: 16,
-          backgroundColor: C.surface,
-          borderTopWidth: 0,
-          height: 64,
-          borderRadius: ledgerRadius.sheet,
-          paddingBottom: 8,
-          paddingTop: 10,
-          borderWidth: 1.5,
-          borderColor: C.border,
-          elevation: 8,
+          bottom: 0,
+          left: 0,
+          right: 0,
+          backgroundColor: C.bg,
+          height: 62 + insets.bottom,
+          borderRadius: 0,
+          paddingBottom: Math.max(insets.bottom, 8),
+          paddingTop: 8,
+          borderWidth: 0,
+          borderTopWidth: 1,
+          borderTopColor: C.border,
+          elevation: 0,
           shadowColor: '#000',
-          shadowOpacity: 0.5,
-          shadowOffset: { width: 0, height: 8 },
-          shadowRadius: 16,
+          shadowOpacity: 0.18,
+          shadowOffset: { width: 0, height: -2 },
+          shadowRadius: 8,
         },
         tabBarActiveTintColor: C.accent,
         tabBarInactiveTintColor: C.text3,
         tabBarLabelStyle: {
-          fontSize: 10,
+          fontSize: 9,
           fontWeight: '700',
-          marginTop: 2,
-          letterSpacing: 0.3,
+          marginTop: 1,
+          letterSpacing: 0.1,
         },
       }}
     >
