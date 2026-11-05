@@ -1,79 +1,112 @@
 # TrackApp 🪙
 
-[![Launch with Expo](https://github.com/expo/examples/blob/master/.gh-assets/launch.svg?raw=true)](https://launch.expo.dev/?github=https://github.com/Draizen75/TrackApp.git)
+TrackApp is an Expo mobile ledger and counter-float manager for Sari-Sari store merchants. It records cash services, e-loads, TV loads, wallet float, customer credit, debt payments, and exports.
 
-> A high-fidelity, premium mobile ledger and counter-float management application for Sari-Sari store merchants.
+## 🌟 Highlights
 
-TrackApp is built using **Expo SDK 56**, **React Native**, and **TypeScript**, with native persistence powered by **Expo SQLite** and Web/Preview environments managed via a synchronized **localStorage mock engine**. The visual design follows a **Warm Architectural & Premium Fintech Aesthetic** (glassmorphism, slate-charcoal bases, warm amber accents, haptic feedback, and responsive layout scaling).
+- Ledger-safe money handling with cent-level rounding.
+- SQLite guards for wallet overdrafts, debt overpayments, invalid targeted payments, and invalid wallet/customer references.
+- Customer transaction history is preserved: customers with any ledger history cannot be deleted.
+- FIFO debt allocation, optional targeted debt payments, and separate contractual versus extra-payment earnings.
+- Paginated transaction history and virtualized lists for responsive scrolling with larger ledgers.
+- Offline-first persistence: Expo SQLite on Android/iOS; IndexedDB on web, with migration from legacy localStorage data where available.
+- CSV and JSON backup export, validated backup restore, configurable fees, custom wallets, SMS reminders, and copy-to-clipboard fallback.
 
----
+## 🎨 Design and interaction
 
-## 🌟 Key Features
+TrackApp uses an obsidian-and-gold ledger aesthetic designed for quick, reliable use at a store counter:
 
-### 1. Counter Float Management & Dashboard
-*   **Hero KPI Panel**: Displays **True Net Profit** with detailed sub-descriptions, alongside gross fees collected, store expenses incurred, and outstanding customer debt (lends/credit) in an aligned column grid.
-*   **Responsive Allocation Analytics**: Features a responsive donut chart visualization showing the float distribution across all registered payment channels.
-*   **Fast Log Shortcuts**: Direct click actions next to recent transactions allow merchants to edit logs instantly or revert balance impacts.
+- Deep obsidian backgrounds and layered dark surfaces keep financial data readable in low-light environments.
+- Gold gradients identify primary actions, while green, amber, red, and blue are reserved for semantic success, warning, error, and informational states.
+- Lucide icons, clear labels, accessible touch targets, pressed feedback, safe-area spacing, and haptic confirmation make actions easy to recognize and confirm.
+- Toast notifications provide non-blocking feedback for saves, errors, and reminders.
+- Transaction and debtor screens use paginated and virtualized lists to keep the interface responsive as the ledger grows.
+- Forms and sheets use keyboard avoidance so controls remain reachable while entering amounts, customer data, or wallet balances.
 
-### 2. Dynamic Custom Wallets & Hashed Brand Colors
-*   **Wallet Registration**: Register custom wallets and bank accounts (e.g. BDO, BPI, ShopeePay) with custom initial balances.
-*   **Deterministic Coloring**: Custom wallets are dynamically assigned high-contrast brand colors (Violet, Crimson, Cyan, Pink, Indigo, Orange, Teal, Emerald, Lime, Magenta) hashed deterministically from their names. This color identity propagates across all statistics screens, list borders, and float allocation charts.
-*   **Reference Guarded Deletion**: Custom wallets can be deleted only if they do not contain any linked transactions or expenses, preventing ledger data corruption.
+## 🛠️ Technology
 
-### 3. Smart Debtors & Settle Ledger System
-*   **Active vs Settled Divisions**: Split customer credit lists into outstanding debts and settled accounts.
-*   **Itemized Statement Statements**: View a customer's detailed statement ledger history with precise date stamps and channel references.
-*   **Profile Deletion**: Settled customers with a `₱0.00` balance can be permanently deleted to clean up the database. Past transaction histories associated with them remain as anonymous entries in reports.
+- Expo SDK 56, React Native 0.85, React 19, TypeScript
+- Expo Router and TanStack Query
+- Expo SQLite for native persistence
+- IndexedDB for web persistence
+- NativeWind and React Native components for the interface
 
-### 4. Mathematical Precision & Deduct Fee Guardrails
-*   **Deduct Fee from Principal**: Handles advanced ledger tracking where service fees are either added on top (`deduct_fee = 0`, client owes `amount + fee`) or subtracted from the payout (`deduct_fee = 1`, client owes only `amount`).
-*   **Negative Balance Guards**: Features native SQLite triggers (`tr_wallet_balance_guard`) and web simulation checks that roll back transactions and throw warnings if a wallet's balance would drop below `₱0.00`.
-*   **Submission Double-Tap Protection**: In-flight submission states discard rapid multi-clicks to prevent duplicate transactions, double payments, or double-deductions.
+## 📋 Prerequisites
 
-### 5. Seamless Native UX Integrations
-*   **Sliding Toast Notifications**: Replaced blocking alerts with sliding glassmorphic success and warning capsules that animate from the device Safe Area notch.
-*   **Keyboard Avoidance sheets**: All text input sheets (adjusting float balances, registering wallets, paying off debts) are wrapped in `<KeyboardAvoidingView>` containers, resizing modal views above the keyboard.
-*   **Safe Area Bottom Navigation**: The floating tab navigation capsule resizes dynamically based on device safe area insets to stay positioned above native software navigation bars.
+- Node.js 20.19 or later
+- npm
+- An Expo account and EAS CLI login only when creating cloud builds
 
----
+## 🚀 Install and run
 
-## 🛠️ Technology Stack
-*   **Framework**: Expo (SDK 56) with Expo Router (v3) file-based routing.
-*   **Language**: TypeScript (ESLint & Expo Lint configured).
-*   **Styling**: Vanilla React Native stylesheet tokens.
-*   **Database**: Native Expo SQLite (`expo-sqlite`) for mobile builds; localStorage mock engine for Web previews.
-*   **Icons**: Lucide React Native (`lucide-react-native`).
-*   **Feedback**: Expo Haptics (`expo-haptics`) impact vibrations.
-
----
-
-## 🚀 Getting Started
-
-### 1. Installation
-Clone the repository and install the dependencies:
 ```bash
 npm install
-```
-
-### 2. Running Locally (Development Server)
-Start the Expo Metro bundler:
-```bash
 npm run start
 ```
-*   Press **`a`** to launch on an Android emulator or connected device.
-*   Press **`i`** to launch on an iOS simulator.
-*   Press **`w`** to open the web-preview browser model.
 
-### 3. Database Management & Backups
-*   **Export Ledger**: Navigate to the Control Center and press **Export & Share CSV Ledger** to compile transaction history.
-*   **Clear Storage**: Reset databases and local caches via **Wipe Database Ledger** inside the Admin panel (requires confirmation).
+From the Expo terminal, press:
 
----
+- `a` for Android
+- `i` for iOS
+- `w` for web
 
-## 📁 Directory Structure
-*   `src/app/` — Expo Router file-based screens and layouts.
-*   `src/app/(tabs)/` — Main tab routes (Dashboard, Entry form, Debtors list, Control Center settings).
-*   `src/hooks/` — SQLite and LocalStorage mock database hooks (`useDbQueries.ts`).
-*   `src/db/` — Native SQLite schemas and initialization scripts (`db.ts`).
-*   `src/components/` — Global UI overlays, including the sliding `ToastProvider` (`toast.tsx`).
-*   `assets/` — Brand app assets, including custom golden launcher icons and splash screens.
+You can also run:
+
+```bash
+npm run android
+npm run web
+```
+
+## ✅ Quality checks
+
+Run these before committing or building:
+
+```bash
+npm run lint
+npx tsc --noEmit
+npm test -- --runInBand
+```
+
+The test suite covers ledger calculations, database guard triggers, backup validation, web persistence, history pagination, utility behavior, and toast feedback.
+
+## 📦 Build an installable Android APK
+
+The `preview` EAS profile produces an installable `.apk` for Android devices and emulators:
+
+```bash
+npx eas-cli@latest login
+npx eas-cli@latest build --platform android --profile preview
+```
+
+The `production` profile uses Expo's default Android App Bundle (`.aab`) format for Google Play distribution. Do not submit an APK to Google Play.
+
+## 🛡️ Data integrity rules
+
+- A wallet cannot fall below zero.
+- A debt payment cannot exceed either the customer balance or a selected debt's remaining balance.
+- A targeted payment cannot predate the debt it settles.
+- A debt with targeted payments cannot be deleted or materially changed until its dependent payments are removed.
+- Backup restores are validated before existing data is cleared and run transactionally.
+
+## 💾 Backups and exports
+
+Use the **Data** tab to:
+
+- export a CSV ledger;
+- export a JSON backup;
+- restore a JSON backup after previewing it; or
+- reset the ledger after confirmation.
+
+Treat exported backups as sensitive business data.
+
+## 📁 Project structure
+
+```text
+src/app/              Expo Router routes and screens
+src/components/       Shared interface components and feedback
+src/db/               SQLite schema, indexes, triggers, and migrations
+src/hooks/            Data queries, ledger calculations, and mutations
+src/utils/            Small pure formatting and calculation utilities
+tests/                Regression and behavior tests
+eas.json              EAS build profiles
+```
