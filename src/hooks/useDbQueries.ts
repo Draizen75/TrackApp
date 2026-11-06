@@ -282,7 +282,9 @@ export function isSettlementBreakdownBalanced(
   if (safeReceived < 0 || safePrincipal < 0 || safeProfit < 0) return false;
   // A zero-received entry is the existing profit/interest-only workflow.
   if (safeReceived === 0) return safePrincipal === 0;
-  return Math.abs(safeReceived - roundCurrency(safePrincipal + safeProfit)) <= 0.01;
+  // All values are normalized to cents above, so even a one-cent mismatch
+  // must be rejected to keep wallet credits and ledger breakdowns identical.
+  return safeReceived === roundCurrency(safePrincipal + safeProfit);
 }
 
 export function assertValidTransactionInput(tx: {
