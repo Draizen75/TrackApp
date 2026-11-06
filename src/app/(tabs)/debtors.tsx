@@ -333,7 +333,7 @@ export default function DebtorsScreen() {
     // totals silently diverge. A zero-principal profit-only entry remains valid.
     if (!isSettlementBreakdownBalanced(received, amount, profit)) {
       setSettlementNotice({
-        message: `Total received (₱${roundCurrency(received).toFixed(2)}) must equal principal (₱${roundCurrency(amount).toFixed(2)}) plus extra profit (₱${roundCurrency(profit).toFixed(2)}). Keep the suggested profit or adjust the received amount.`,
+        message: `Total received (₱${received.toFixed(2)}) must equal principal (₱${amount.toFixed(2)}) plus extra profit (₱${profit.toFixed(2)}). Keep the suggested profit or adjust the received amount.`,
         type: 'error',
       });
       return;
