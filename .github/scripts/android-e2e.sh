@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-mkdir -p .maestro-results .android-diagnostics
-: > .android-diagnostics/runner-started.txt
+# The emulator action may invoke its script from a temporary directory.
+# Anchor all test output to the checked-out repository so later workflow
+# steps can upload it reliably.
+cd "${GITHUB_WORKSPACE:-$(git rev-parse --show-toplevel)}"
+RESULT_DIR="$PWD/.maestro-results"
+DIAGNOSTICS_DIR="$PWD/.android-diagnostics"
+mkdir -p "$RESULT_DIR" "$DIAGNOSTICS_DIR"
+: > "$DIAGNOSTICS_DIR/runner-started.txt"
 
 echo "Waiting for Android emulator boot..."
 adb wait-for-device
@@ -21,14 +27,14 @@ fi
 # Capture Android logs independently of Maestro's output directory. The
 # background capture also preserves startup exceptions and native crashes.
 adb logcat -c || true
-adb logcat -v time > .android-diagnostics/logcat.txt 2>&1 &
+adb logcat -v time > "$DIAGNOSTICS_DIR"/logcat.txt 2>&1 &
 LOGCAT_PID=$!
 capture_diagnostics() {
-  adb exec-out screencap -p > .android-diagnostics/final-screen.png 2>/dev/null || true
+  adb exec-out screencap -p > "$DIAGNOSTICS_DIR"/final-screen.png 2>/dev/null || true
   adb shell uiautomator dump /sdcard/trackapp-window.xml >/dev/null 2>&1 || true
-  adb pull /sdcard/trackapp-window.xml .android-diagnostics/window.xml >/dev/null 2>&1 || true
-  adb shell dumpsys activity activities > .android-diagnostics/activities.txt 2>&1 || true
-  adb shell dumpsys package com.draizen.TrackApp > .android-diagnostics/package.txt 2>&1 || true
+  adb pull /sdcard/trackapp-window.xml "$DIAGNOSTICS_DIR"/window.xml >/dev/null 2>&1 || true
+  adb shell dumpsys activity activities > "$DIAGNOSTICS_DIR"/activities.txt 2>&1 || true
+  adb shell dumpsys package com.draizen.TrackApp > "$DIAGNOSTICS_DIR"/package.txt 2>&1 || true
   kill "$LOGCAT_PID" >/dev/null 2>&1 || true
   wait "$LOGCAT_PID" 2>/dev/null || true
 }
@@ -48,12 +54,12 @@ adb install -r "$APK"
 adb shell am force-stop com.draizen.TrackApp || true
 adb shell monkey -p com.draizen.TrackApp 1 >/dev/null 2>&1 || true
 sleep 8
-adb shell pidof com.draizen.TrackApp > .android-diagnostics/app-pid.txt 2>&1 || true
+adb shell pidof com.draizen.TrackApp > "$DIAGNOSTICS_DIR"/app-pid.txt 2>&1 || true
 
 set +e
-maestro test --format junit --output .maestro-results/junit.xml .maestro
+maestro test --format junit --output "$RESULT_DIR/junit.xml" .maestro
 TEST_EXIT_CODE=$?
 set -e
 
-echo "$TEST_EXIT_CODE" > .android-diagnostics/maestro-exit-code.txt
+echo "$TEST_EXIT_CODE" > "$DIAGNOSTICS_DIR"/maestro-exit-code.txt
 exit "$TEST_EXIT_CODE"
