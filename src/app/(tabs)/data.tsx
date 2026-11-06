@@ -103,8 +103,11 @@ export default function DataScreen() {
     useRestoreBackup,
     useAddWallet,
     useDeleteWallet,
+    useWallets,
   } = useDbQueries();
-  const { data: dashboardData, isLoading: isDashboardLoading, isError: isDashboardError, refetch: refetchDashboard } = useDashboardData(30, isScreenFocused);
+  const { data: dashboardDataResult, isError: isDashboardError, refetch: refetchDashboard } = useDashboardData(30, isScreenFocused);
+  const { data: wallets = [] } = useWallets(isScreenFocused);
+  // Keep settings and wallet management available when dashboard aggregation fails.
   const { data: settings, isError: isSettingsError, refetch: refetchSettings } = useSettings(isScreenFocused);
   const { refetch: refetchExportData } = useExportData();
   const { refetch: refetchBackupData } = useBackupData();
@@ -758,21 +761,6 @@ export default function DataScreen() {
     marginBottom: 20,
   };
 
-  if (!dashboardData) {
-    return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: C.bg, justifyContent: 'center', alignItems: 'center', padding: 24 }} edges={['top']}>
-        <Text style={{ color: C.text1, fontSize: 16, fontWeight: '700', textAlign: 'center' }}>
-          {isDashboardLoading ? 'Loading settings…' : isDashboardError ? 'Could not load settings data.' : 'Settings data is unavailable.'}
-        </Text>
-        {!isDashboardLoading && (
-          <TouchableOpacity onPress={() => refetchDashboard()} accessibilityRole="button" accessibilityLabel="Retry loading settings" style={{ marginTop: 16, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 12, backgroundColor: C.accent }}>
-            <Text style={{ color: C.bg, fontWeight: '800' }}>Try again</Text>
-          </TouchableOpacity>
-        )}
-      </SafeAreaView>
-    );
-  }
-
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}>
       <ScrollView
@@ -800,11 +788,11 @@ export default function DataScreen() {
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingTop: 16 }}>
             <View style={{ alignItems: 'center', flex: 1 }}>
               <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 6 }}>Transactions</Text>
-              <Text style={{ color: C.text1, fontSize: 16, fontWeight: '900' }}>{dashboardData.transactionCount}</Text>
+              <Text style={{ color: C.text1, fontSize: 16, fontWeight: '900' }}>{dashboardDataResult ? dashboardDataResult.transactionCount : '—'}</Text>
             </View>
             <View style={{ alignItems: 'center', flex: 1, borderLeftWidth: 1, borderRightWidth: 1, borderColor: C.border }}>
               <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 6 }}>Wallets</Text>
-              <Text style={{ color: C.text1, fontSize: 16, fontWeight: '900' }}>{dashboardData.wallets.length} accounts</Text>
+              <Text style={{ color: C.text1, fontSize: 16, fontWeight: '900' }}>{wallets.length} accounts</Text>
             </View>
             <View style={{ alignItems: 'center', flex: 1 }}>
               <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 6 }}>Data Storage</Text>
@@ -841,7 +829,7 @@ export default function DataScreen() {
           </Text>
 
           <View style={{ gap: 10 }}>
-            {dashboardData.wallets.map((wallet) => (
+            {wallets.map((wallet) => (
               <TouchableOpacity
                 key={wallet.channel}
                 onPress={() => handleOpenEditModal(wallet)}

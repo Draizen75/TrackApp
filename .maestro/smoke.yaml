@@ -1,0 +1,18 @@
+appId: com.draizen.TrackApp
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Earnings Collected"
+    timeout: 30000
+- assertVisible: "Earnings Collected"
+- tapOn: "Settings"
+- extendedWaitUntil:
+    visible: "Wallets"
+    timeout: 15000
+- assertVisible: "Wallets"
+- tapOn: "Dashboard"
+- extendedWaitUntil:
+    visible: "Earnings Collected"
+    timeout: 15000
+- assertVisible: "Earnings Collected"

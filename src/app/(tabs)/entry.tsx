@@ -14,6 +14,7 @@ import { ledgerColors as C } from '@/theme/ledger';
 import { calculateSuggestedEntryFee, getEntryPreviewRows } from '@/utils/entry-preview';
 import { getEntryActionBarBottomPadding } from '@/utils/entry-layout';
 import { useScreenFocus } from '@/hooks/useScreenFocus';
+import { isValidMoneyInput } from '@/utils/strict-money';
 
 // ─── Obsidian & Gold Design ────────────────────────────────────────────────────
 const clearZeroIfNeeded = (value: string, setter: (value: string) => void) => {
@@ -24,10 +25,10 @@ const clearZeroIfNeeded = (value: string, setter: (value: string) => void) => {
 
 const entrySchema = z.object({
   type: z.enum(['CASH_IN', 'CASH_OUT', 'E_LOAD', 'TV_LOAD']),
-  amount: z.string().refine((val) => !isNaN(parseFloat(val)) && parseFloat(val) > 0, {
+  amount: z.string().refine((val) => isValidMoneyInput(val, false), {
     message: 'Base amount must be greater than 0',
   }),
-  fee: z.string().refine((val) => !isNaN(parseFloat(val)) && parseFloat(val) >= 0, {
+  fee: z.string().refine((val) => isValidMoneyInput(val, true), {
     message: 'Fee must be a valid number',
   }),
   channel: z.string().min(1, 'Please select a channel'),

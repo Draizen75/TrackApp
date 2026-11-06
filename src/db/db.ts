@@ -445,7 +445,7 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
       UPDATE wallets
       SET balance = balance 
         -- 1. Revert OLD transaction effect on OLD digital wallet
-        + (CASE WHEN channel = OLD.channel THEN
+        + (CASE WHEN channel = OLD.channel AND (OLD.channel != 'PHYSICAL_CASH' OR OLD.type = 'DEBT_PAYMENT') THEN
              (CASE
                WHEN OLD.type = 'CASH_IN' THEN (OLD.amount - (CASE WHEN OLD.deduct_fee = 1 THEN OLD.fee ELSE 0 END))
                WHEN OLD.type = 'CASH_OUT' AND OLD.is_debt = 0 THEN - (OLD.amount + (CASE WHEN OLD.deduct_fee = 1 THEN 0 ELSE OLD.fee END))
@@ -464,7 +464,7 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
               END)
            ELSE 0 END)
         -- 3. Apply NEW transaction effect on NEW digital wallet
-        + (CASE WHEN channel = NEW.channel THEN
+        + (CASE WHEN channel = NEW.channel AND (NEW.channel != 'PHYSICAL_CASH' OR NEW.type = 'DEBT_PAYMENT') THEN
              (CASE
                WHEN NEW.type = 'CASH_IN' THEN - (NEW.amount - (CASE WHEN NEW.deduct_fee = 1 THEN NEW.fee ELSE 0 END))
                WHEN NEW.type = 'CASH_OUT' AND NEW.is_debt = 0 THEN (NEW.amount + (CASE WHEN NEW.deduct_fee = 1 THEN 0 ELSE NEW.fee END))
