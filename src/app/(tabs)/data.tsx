@@ -103,6 +103,7 @@ export default function DataScreen() {
     useRestoreBackup,
     useAddWallet,
     useDeleteWallet,
+    useWallets,
   } = useDbQueries();
   const { data: dashboardDataResult, isError: isDashboardError, refetch: refetchDashboard } = useDashboardData(30, isScreenFocused);
   const { data: wallets = [] } = useWallets(isScreenFocused);
