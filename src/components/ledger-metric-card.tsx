@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Text, View } from 'react-native';
+import { ledgerColors as C } from '@/theme/ledger';
 
 type LedgerMetricCardProps = {
   icon: ReactNode;
@@ -23,7 +24,7 @@ export function LedgerMetricCard({ icon, label, value, color }: LedgerMetricCard
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 }}>
         {icon}
-        <Text style={{ color: '#999ba3', fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: '700' }}>
+        <Text style={{ color: C.text3, fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: '700' }}>
           {label}
         </Text>
       </View>
