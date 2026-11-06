@@ -108,7 +108,6 @@ export default function DataScreen() {
   const { data: dashboardDataResult, isError: isDashboardError, refetch: refetchDashboard } = useDashboardData(30, isScreenFocused);
   const { data: wallets = [] } = useWallets(isScreenFocused);
   // Keep settings and wallet management available when dashboard aggregation fails.
-  const dashboardData = dashboardDataResult ?? { transactionCount: null, wallets };
   const { data: settings, isError: isSettingsError, refetch: refetchSettings } = useSettings(isScreenFocused);
   const { refetch: refetchExportData } = useExportData();
   const { refetch: refetchBackupData } = useBackupData();
@@ -793,7 +792,7 @@ export default function DataScreen() {
             </View>
             <View style={{ alignItems: 'center', flex: 1, borderLeftWidth: 1, borderRightWidth: 1, borderColor: C.border }}>
               <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 6 }}>Wallets</Text>
-              <Text style={{ color: C.text1, fontSize: 16, fontWeight: '900' }}>{dashboardData.wallets.length} accounts</Text>
+              <Text style={{ color: C.text1, fontSize: 16, fontWeight: '900' }}>{wallets.length} accounts</Text>
             </View>
             <View style={{ alignItems: 'center', flex: 1 }}>
               <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 6 }}>Data Storage</Text>
@@ -830,7 +829,7 @@ export default function DataScreen() {
           </Text>
 
           <View style={{ gap: 10 }}>
-            {dashboardData.wallets.map((wallet) => (
+            {wallets.map((wallet) => (
               <TouchableOpacity
                 key={wallet.channel}
                 onPress={() => handleOpenEditModal(wallet)}
