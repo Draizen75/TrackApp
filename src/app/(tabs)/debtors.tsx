@@ -1089,6 +1089,9 @@ export default function DebtorsScreen() {
                   const isSelectableDebt = tx.is_debt === 1 && (outstandingByDebtId.get(tx.id) || 0) > 0.01;
                   const isSelectedDebt = activeSelectedDebtIds.includes(tx.id);
                   const txTotal = isPayment ? tx.amount : (tx.amount + (tx.deduct_fee === 1 ? 0 : tx.fee));
+                  const remainingDebtBalance = tx.is_debt === 1
+                    ? outstandingByDebtId.get(tx.id) || 0
+                    : null;
                   const isInterestOnlyPayment = isPayment && tx.amount === 0 && tx.fee > 0;
                   const formattedDate = tx.created_at
                     ? new Date(tx.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -1126,6 +1129,11 @@ export default function DebtorsScreen() {
                       </View>
                       <View style={{ alignItems: 'flex-end' }}>
                         <Text style={{ color: isPayment ? C.success : C.danger, fontSize: 13, fontWeight: '800' }}>{isPayment ? '-' : '+'}₱{txTotal.toFixed(2)}</Text>
+                        {remainingDebtBalance !== null && (
+                          <Text style={{ color: remainingDebtBalance > 0.01 ? C.accent : C.success, fontSize: 10, fontWeight: '700' }}>
+                            {remainingDebtBalance > 0.01 ? `Remaining ₱${remainingDebtBalance.toFixed(2)}` : 'Fully paid'}
+                          </Text>
+                        )}
                         {isPayment && tx.fee > 0 && <Text style={{ color: C.accent, fontSize: 10 }}>Profit paid PHP {tx.fee.toFixed(2)}</Text>}
                         {!isPayment && tx.fee > 0 && <Text style={{ color: C.text3, fontSize: 10 }}>{tx.deduct_fee === 1 ? `Deducted ₱${tx.fee.toFixed(2)} fee` : `Inc. ₱${tx.fee.toFixed(2)} fee`}</Text>}
                         {!isDebtSelectionMode && (
