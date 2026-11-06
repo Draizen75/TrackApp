@@ -293,7 +293,7 @@ export default function DebtorsScreen() {
     if (process.env.EXPO_OS !== 'web') {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
-    setDetailModalVisible(false);
+    closeDebtorStatement();
     router.push({
       pathname: '/entry',
       params: {
