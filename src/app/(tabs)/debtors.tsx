@@ -315,7 +315,7 @@ export default function DebtorsScreen() {
 
   const submitSettlement = async () => {
     if (!selectedDebtor || settleMutation.isPending) return; // Prevent double trigger
-    if (!isValidMoneyInput(settleAmount, false) || (settleProfit.trim() !== '' && !isValidMoneyInput(settleProfit, true))) {
+    if (!isValidMoneyInput(settleAmount, true) || (settleProfit.trim() !== '' && !isValidMoneyInput(settleProfit, true))) {
       setSettlementNotice({ message: 'Enter a valid amount with no more than two decimal places.', type: 'error' });
       return;
     }
