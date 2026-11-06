@@ -270,6 +270,21 @@ export function splitSettlementReceived(received: number, principalCap: number) 
   };
 }
 
+export function isSettlementBreakdownBalanced(
+  received: number,
+  principal: number,
+  profit: number,
+) {
+  const safeReceived = roundCurrency(received);
+  const safePrincipal = roundCurrency(principal);
+  const safeProfit = roundCurrency(profit);
+  if (![safeReceived, safePrincipal, safeProfit].every(Number.isFinite)) return false;
+  if (safeReceived < 0 || safePrincipal < 0 || safeProfit < 0) return false;
+  // A zero-received entry is the existing profit/interest-only workflow.
+  if (safeReceived === 0) return safePrincipal === 0;
+  return Math.abs(safeReceived - roundCurrency(safePrincipal + safeProfit)) <= 0.01;
+}
+
 export function assertValidTransactionInput(tx: {
   type: Transaction['type']; amount: number; fee: number; channel: string;
   customer_id: number | null; is_debt: boolean; deduct_fee?: boolean;
