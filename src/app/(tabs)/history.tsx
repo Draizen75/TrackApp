@@ -10,6 +10,7 @@ import { Search, X, Trash2, Pencil, Check, Coins, ChevronRight, ChevronDown, Sli
 import { ledgerColors as C, ledgerRadius } from '@/theme/ledger';
 import { getHistoryDateBounds, type HistoryDateRange } from '@/utils/history-date-range';
 import { useScreenFocus } from '@/hooks/useScreenFocus';
+import { getReceiptPaymentBreakdown } from '@/utils/transaction-receipt';
 
 // ─── Obsidian & Gold Design ────────────────────────────────────────────────────
 const clearZeroIfNeeded = (value: string, setter: (value: string) => void) => {
@@ -754,9 +755,7 @@ export default function HistoryScreen() {
                   minute: '2-digit',
                 }).format(new Date(detailTx.created_at))
               : 'N/A';
-            const principal = Number(detailTx.amount) || 0;
-            const extraProfit = isDebtPayment ? Number(detailTx.fee) || 0 : 0;
-            const totalReceived = principal + extraProfit;
+            const { principal, extraProfit, totalReceived } = getReceiptPaymentBreakdown(detailTx);
 
             const ReceiptRow = ({ label, value, valueColor = C.text1 }: { label: string; value: string; valueColor?: string }) => (
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 9 }}>
