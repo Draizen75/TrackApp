@@ -23,6 +23,26 @@ describe('targeted batch debt payments', () => {
     ]);
   });
 
+  it('does not create payment records for zero or negative received amounts', () => {
+    expect(allocateTargetedDebtPayment(selectedDebts, 0)).toEqual([]);
+    expect(allocateTargetedDebtPayment(selectedDebts, -10)).toEqual([]);
+  });
+
+  it('skips already-settled debts and continues in ledger order', () => {
+    expect(allocateTargetedDebtPayment([
+      { id: 20, outstanding: 0 },
+      { id: 21, outstanding: 12.5 },
+      { id: 22, outstanding: 7.5 },
+    ], 15)).toEqual([
+      { targetDebtId: 21, amount: 12.5 },
+      { targetDebtId: 22, amount: 2.5 },
+    ]);
+  });
+
+  it('returns no records when no debts are selected', () => {
+    expect(allocateTargetedDebtPayment([], 100)).toEqual([]);
+  });
+
   it('does not allocate more than the selected debt balance', () => {
     expect(allocateTargetedDebtPayment([{ id: 13, outstanding: 2550 }], 2600)).toEqual([
       { targetDebtId: 13, amount: 2550 },
