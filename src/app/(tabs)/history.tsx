@@ -848,14 +848,6 @@ export default function HistoryScreen() {
                       </>
                     )}
                   </View>
-                  {isDebtPayment && (
-                    <View style={{ backgroundColor: C.successDim, borderWidth: 1, borderColor: 'rgba(32,200,117,0.22)', borderRadius: 14, padding: 13, marginBottom: 14 }}>
-                      <Text style={{ color: C.success, fontSize: 11, fontWeight: '800' }}>Individual payment record</Text>
-                      <Text style={{ color: C.text2, fontSize: 11, lineHeight: 17, marginTop: 4 }}>
-                        Each debt payment is saved as its own record. In a multi-debt settlement, extra profit is recorded only once on the first payment record; the other records show principal only.
-                      </Text>
-                    </View>
-                  )}
                 </ScrollView>
 
                 <TouchableOpacity
