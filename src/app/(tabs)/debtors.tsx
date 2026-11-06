@@ -25,6 +25,7 @@ import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler'
 import { ledgerColors as C } from '@/theme/ledger';
 import { getDebtorPaymentLabel, isPaymentWithinDays } from '@/utils/debtor-payment-label';
 import { useScreenFocus } from '@/hooks/useScreenFocus';
+import { isValidMoneyInput } from '@/utils/strict-money';
 
 // ─── Obsidian & Gold Design ────────────────────────────────────────────────────
 export default function DebtorsScreen() {
@@ -314,8 +315,11 @@ export default function DebtorsScreen() {
 
   const submitSettlement = async () => {
     if (!selectedDebtor || settleMutation.isPending) return; // Prevent double trigger
-    const parsedReceived = parseFloat(settleAmount);
-    const received = Number.isFinite(parsedReceived) ? parsedReceived : 0;
+    if (!isValidMoneyInput(settleAmount, false) || (settleProfit.trim() !== '' && !isValidMoneyInput(settleProfit, true))) {
+      setSettlementNotice({ message: 'Enter a valid amount with no more than two decimal places.', type: 'error' });
+      return;
+    }
+    const received = Number(settleAmount);
     const enteredProfit = parseFloat(settleProfit);
     const principalCap = getSettlementPrincipalCap();
     const settlementSplit = splitSettlementReceived(received, principalCap);
