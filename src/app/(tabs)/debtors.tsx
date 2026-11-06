@@ -51,6 +51,8 @@ export default function DebtorsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDebtor, setSelectedDebtor] = useState<Debtor | null>(null);
   const [selectedDebtEntry, setSelectedDebtEntry] = useState<Transaction | null>(null);
+  const [selectedDebtIds, setSelectedDebtIds] = useState<number[]>([]);
+  const [isDebtSelectionMode, setIsDebtSelectionMode] = useState(false);
   const [settleAmount, setSettleAmount] = useState('');
   const [settleProfit, setSettleProfit] = useState('');
   const [settleChannel, setSettleChannel] = useState<string>('PHYSICAL_CASH');
@@ -78,6 +80,14 @@ export default function DebtorsScreen() {
     () => getDebtOutstandingById(debtorLedgerHistory),
     [debtorLedgerHistory],
   );
+  const activeSelectedDebtIds = useMemo(
+    () => selectedDebtIds.filter((debtId) => (outstandingByDebtId.get(debtId) || 0) > 0.01),
+    [outstandingByDebtId, selectedDebtIds],
+  );
+  const selectableDebtEntries = useMemo(
+    () => debtorLedgerHistory.filter((transaction) => transaction.is_debt === 1 && (outstandingByDebtId.get(transaction.id) || 0) > 0.01),
+    [debtorLedgerHistory, outstandingByDebtId],
+  );
   const sortModeLabel = {
     overdue: 'Oldest overdue',
     recent_activity: 'Recent activity',
@@ -87,6 +97,9 @@ export default function DebtorsScreen() {
 
   const getSettlementPrincipalCap = () => {
     if (!selectedDebtor) return 0;
+    if (activeSelectedDebtIds.length > 0) {
+      return activeSelectedDebtIds.reduce((total, debtId) => total + (outstandingByDebtId.get(debtId) || 0), 0);
+    }
     return selectedDebtEntry
       ? outstandingByDebtId.get(selectedDebtEntry.id) || 0
       : selectedDebtor.balance;
@@ -154,6 +167,7 @@ export default function DebtorsScreen() {
     setSettlementNotice(null);
     setSelectedDebtor(debtor);
     setSelectedDebtEntry(null);
+    setSelectedDebtIds([]);
     setSettleAmount(debtor.balance.toString());
     setSettleProfit('');
     setModalVisible(true);
@@ -322,6 +336,7 @@ export default function DebtorsScreen() {
         profit,
         channel: settleChannel,
         target_debt_id: selectedDebtEntry?.id,
+        target_debt_ids: activeSelectedDebtIds.length > 0 ? activeSelectedDebtIds : undefined,
       });
 
       setModalVisible(false);
@@ -330,6 +345,8 @@ export default function DebtorsScreen() {
       const name = selectedDebtor.name;
       setSelectedDebtor(null);
       setSelectedDebtEntry(null);
+      setSelectedDebtIds([]);
+      setIsDebtSelectionMode(false);
       if (amount === 0) {
         showToast(`Recorded PHP ${profit.toFixed(2)} interest for ${name}. Debt principal unchanged.`, 'success');
         return;
@@ -484,7 +501,27 @@ export default function DebtorsScreen() {
     const outstanding = outstandingByDebtId.get(debt.id) || 0;
     if (outstanding <= 0.01) return;
     setSelectedDebtEntry(debt);
+    setSelectedDebtIds([]);
     setSettleAmount(outstanding.toFixed(2));
+    setSettleProfit('');
+    setModalVisible(true);
+  };
+
+  const toggleDebtSelection = (debt: Transaction) => {
+    const outstanding = outstandingByDebtId.get(debt.id) || 0;
+    if (outstanding <= 0.01) return;
+    setSelectedDebtIds((current) => {
+      const active = current.filter((id) => (outstandingByDebtId.get(id) || 0) > 0.01);
+      return active.includes(debt.id) ? active.filter((id) => id !== debt.id) : [...active, debt.id];
+    });
+  };
+
+  const openBatchDebtPayment = () => {
+    const selectedTotal = getSettlementPrincipalCap();
+    if (!selectedDebtor || activeSelectedDebtIds.length === 0 || selectedTotal <= 0.01) return;
+    setSettlementNotice(null);
+    setSelectedDebtEntry(null);
+    setSettleAmount(selectedTotal.toFixed(2));
     setSettleProfit('');
     setModalVisible(true);
   };
@@ -891,6 +928,22 @@ export default function DebtorsScreen() {
               </View>
 
               {/* Total Balance Card */}
+              {isDebtSelectionMode ? (
+                <View style={{ backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 12, marginBottom: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase' }}>Current Balance</Text>
+                    <Text style={{ color: C.accent, fontSize: 20, fontWeight: '900', marginTop: 2, fontVariant: ['tabular-nums'] }}>
+                      ₱{Math.abs(selectedDebtor?.balance || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    </Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>Available</Text>
+                    <Text style={{ color: C.text1, fontSize: 15, fontWeight: '800', marginTop: 2, fontVariant: ['tabular-nums'] }}>
+                      {selectableDebtEntries.length} unpaid debts
+                    </Text>
+                  </View>
+                </View>
+              ) : (
               <View style={{ backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 20, padding: 16, marginBottom: 20 }}>
                 <View>
                   <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', textTransform: 'uppercase' }}>Current Balance</Text>
@@ -947,12 +1000,50 @@ export default function DebtorsScreen() {
                   )}
                 </View>
               </View>
+              )}
 
               {/* Itemized Ledger */}
-              <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 12 }}>Ledger History</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+                <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase' }}>Ledger History</Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    setIsDebtSelectionMode((enabled) => !enabled);
+                    setSelectedDebtIds([]);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={isDebtSelectionMode ? 'Cancel debt selection' : 'Select debts to pay'}
+                  style={{ minHeight: 40, justifyContent: 'center', paddingHorizontal: 10, borderRadius: 10, borderWidth: 1, borderColor: isDebtSelectionMode ? C.accent : C.border, backgroundColor: isDebtSelectionMode ? C.accentDim : C.surface2 }}
+                >
+                  <Text style={{ color: isDebtSelectionMode ? C.accent : C.text2, fontSize: 11, fontWeight: '800' }}>
+                    {isDebtSelectionMode ? 'Cancel' : 'Select debts'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              {isDebtSelectionMode && (
+                <View style={{ borderRadius: 12, borderWidth: 1, borderColor: C.border, backgroundColor: C.bg, padding: 10, marginBottom: 12, gap: 8 }}>
+                  <Text style={{ color: C.accent, fontSize: 10, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase' }}>
+                    Unpaid debts only
+                  </Text>
+                  <Text style={{ color: C.text3, fontSize: 11 }}>
+                    Choose entries to settle. A partial payment is applied to the oldest selected debt first.
+                  </Text>
+                  {activeSelectedDebtIds.length > 0 && (
+                    <TouchableOpacity
+                      onPress={openBatchDebtPayment}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Pay ${activeSelectedDebtIds.length} selected debts`}
+                      style={{ minHeight: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: C.successDim, borderWidth: 1, borderColor: C.success }}
+                    >
+                      <Text style={{ color: C.success, fontSize: 12, fontWeight: '900' }}>
+                        Pay {activeSelectedDebtIds.length} selected · ₱{getSettlementPrincipalCap().toFixed(2)}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
               
               <FlatList
-                data={debtorLedgerHistory}
+                data={isDebtSelectionMode ? selectableDebtEntries : debtorLedgerHistory}
                 keyExtractor={(transaction) => transaction.id.toString()}
                 initialNumToRender={10}
                 maxToRenderPerBatch={10}
@@ -967,11 +1058,17 @@ export default function DebtorsScreen() {
                   </TouchableOpacity>
                 ) : (
                   <Text style={{ color: C.text3, fontSize: 12, textAlign: 'center', paddingVertical: 20 }}>
-                    {isDebtorLedgerLoading ? 'Loading ledger history...' : 'No transaction history for this customer.'}
+                    {isDebtorLedgerLoading
+                      ? 'Loading ledger history...'
+                      : isDebtSelectionMode
+                        ? 'No unpaid debt entries are available to select.'
+                        : 'No transaction history for this customer.'}
                   </Text>
                 )}
                 renderItem={({ item: tx }) => {
                   const isPayment = tx.type === 'DEBT_PAYMENT';
+                  const isSelectableDebt = tx.is_debt === 1 && (outstandingByDebtId.get(tx.id) || 0) > 0.01;
+                  const isSelectedDebt = activeSelectedDebtIds.includes(tx.id);
                   const txTotal = isPayment ? tx.amount : (tx.amount + (tx.deduct_fee === 1 ? 0 : tx.fee));
                   const isInterestOnlyPayment = isPayment && tx.amount === 0 && tx.fee > 0;
                   const formattedDate = tx.created_at
@@ -979,7 +1076,26 @@ export default function DebtorsScreen() {
                     : 'N/A';
 
                   return (
-                    <View style={{ backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border, borderRadius: 14, padding: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <TouchableOpacity
+                      disabled={!isDebtSelectionMode}
+                      onPress={() => toggleDebtSelection(tx)}
+                      accessibilityRole={isDebtSelectionMode ? 'checkbox' : undefined}
+                      accessibilityState={isDebtSelectionMode ? { checked: isSelectedDebt } : undefined}
+                      accessibilityLabel={isDebtSelectionMode
+                        ? `${isSelectedDebt ? 'Deselect' : 'Select'} debt of ₱${(outstandingByDebtId.get(tx.id) || 0).toFixed(2)}`
+                        : undefined}
+                      activeOpacity={0.72}
+                      style={{ backgroundColor: C.surface2, borderWidth: 1, borderColor: isSelectedDebt ? C.accent : C.border, borderRadius: 14, padding: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
+                    >
+                      {isDebtSelectionMode && isSelectableDebt && (
+                        <View
+                          style={{ width: 44, height: 44, marginRight: 4, alignItems: 'center', justifyContent: 'center' }}
+                        >
+                          <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: isSelectedDebt ? C.accent : C.text3, backgroundColor: isSelectedDebt ? C.accent : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                            {isSelectedDebt && <Check size={14} color={C.bg} strokeWidth={3} />}
+                          </View>
+                        </View>
+                      )}
                       <View style={{ flex: 1, marginRight: 8 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                           <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: isPayment ? C.successDim : C.dangerDim, borderWidth: 1, borderColor: isPayment ? 'rgba(90,155,110,0.15)' : 'rgba(220,107,90,0.15)' }}>
@@ -993,40 +1109,42 @@ export default function DebtorsScreen() {
                         <Text style={{ color: isPayment ? C.success : C.danger, fontSize: 13, fontWeight: '800' }}>{isPayment ? '-' : '+'}₱{txTotal.toFixed(2)}</Text>
                         {isPayment && tx.fee > 0 && <Text style={{ color: C.accent, fontSize: 10 }}>Profit paid PHP {tx.fee.toFixed(2)}</Text>}
                         {!isPayment && tx.fee > 0 && <Text style={{ color: C.text3, fontSize: 10 }}>{tx.deduct_fee === 1 ? `Deducted ₱${tx.fee.toFixed(2)} fee` : `Inc. ₱${tx.fee.toFixed(2)} fee`}</Text>}
-                        <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
-                          {tx.is_debt === 1 && (outstandingByDebtId.get(tx.id) || 0) > 0.01 && (
+                        {!isDebtSelectionMode && (
+                          <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
+                            {tx.is_debt === 1 && (outstandingByDebtId.get(tx.id) || 0) > 0.01 && (
+                              <TouchableOpacity
+                                onPress={() => openSelectedDebtPayment(tx)}
+                                accessibilityRole="button"
+                                accessibilityLabel="Settle selected debt"
+                                hitSlop={8}
+                                style={{ width: 32, height: 32, justifyContent: 'center', alignItems: 'center' }}
+                              >
+                                <Coins size={14} color={C.success} />
+                              </TouchableOpacity>
+                            )}
                             <TouchableOpacity
-                              onPress={() => openSelectedDebtPayment(tx)}
+                              onPress={() => openTransactionEditor(tx.id)}
                               accessibilityRole="button"
-                              accessibilityLabel="Settle selected debt"
-                              hitSlop={8}
-                              style={{ width: 32, height: 32, justifyContent: 'center', alignItems: 'center' }}
+                              accessibilityLabel="Edit ledger transaction"
+                              hitSlop={10}
+                              style={{ padding: 6, backgroundColor: C.surface, borderRadius: 8, borderWidth: 1, borderColor: C.border }}
                             >
-                              <Coins size={14} color={C.success} />
+                              <Pencil size={13} color={C.accent} />
                             </TouchableOpacity>
-                          )}
-                          <TouchableOpacity
-                            onPress={() => openTransactionEditor(tx.id)}
-                            accessibilityRole="button"
-                            accessibilityLabel="Edit ledger transaction"
-                            hitSlop={10}
-                            style={{ padding: 6, backgroundColor: C.surface, borderRadius: 8, borderWidth: 1, borderColor: C.border }}
-                          >
-                            <Pencil size={13} color={C.accent} />
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            onPress={() => handleDeleteLedgerTransaction(tx.id)}
-                            disabled={deleteTransactionMutation.isPending}
-                            accessibilityRole="button"
-                            accessibilityLabel="Delete ledger transaction"
-                            hitSlop={10}
-                            style={{ padding: 6, backgroundColor: C.surface, borderRadius: 8, borderWidth: 1, borderColor: C.border, opacity: deleteTransactionMutation.isPending ? 0.5 : 1 }}
-                          >
-                            <Trash2 size={13} color={C.text3} />
-                          </TouchableOpacity>
-                        </View>
+                            <TouchableOpacity
+                              onPress={() => handleDeleteLedgerTransaction(tx.id)}
+                              disabled={deleteTransactionMutation.isPending}
+                              accessibilityRole="button"
+                              accessibilityLabel="Delete ledger transaction"
+                              hitSlop={10}
+                              style={{ padding: 6, backgroundColor: C.surface, borderRadius: 8, borderWidth: 1, borderColor: C.border, opacity: deleteTransactionMutation.isPending ? 0.5 : 1 }}
+                            >
+                              <Trash2 size={13} color={C.text3} />
+                            </TouchableOpacity>
+                          </View>
+                        )}
                       </View>
-                    </View>
+                    </TouchableOpacity>
                   );
                 }}
               />
@@ -1127,7 +1245,11 @@ export default function DebtorsScreen() {
                 <View>
                   <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase' }}>Settle Ledger</Text>
                   <Text style={{ color: C.text1, fontSize: 18, fontWeight: '800', marginTop: 2 }}>
-                    {selectedDebtEntry ? `Pay selected debt: ₱${(outstandingByDebtId.get(selectedDebtEntry.id) || 0).toFixed(2)}` : `Pay Debt: ${selectedDebtor?.name}`}
+                    {activeSelectedDebtIds.length > 0
+                      ? `Pay ${activeSelectedDebtIds.length} selected debts: ₱${getSettlementPrincipalCap().toFixed(2)}`
+                      : selectedDebtEntry
+                        ? `Pay selected debt: ₱${(outstandingByDebtId.get(selectedDebtEntry.id) || 0).toFixed(2)}`
+                        : `Pay Debt: ${selectedDebtor?.name}`}
                   </Text>
                 </View>
                 <TouchableOpacity 

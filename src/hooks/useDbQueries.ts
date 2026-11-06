@@ -1,4 +1,5 @@
 import { migrateDbIfNeeded } from '@/db/db';
+import { allocateTargetedDebtPayment } from '@/utils/debt-payment-batch';
 import {
   useInfiniteQuery,
   useMutation,
@@ -1860,37 +1861,57 @@ export function useWebDbQueries() {
 
   const useSettleDebt = () => {
     return useWebMutation({
-      mutationFn: async ({ customer_id, amount, channel, profit, target_debt_id }: { customer_id: number; amount: number; channel: string; profit?: number; target_debt_id?: number }) => {
+      mutationFn: async ({ customer_id, amount, channel, profit, target_debt_id, target_debt_ids }: {
+        customer_id: number;
+        amount: number;
+        channel: string;
+        profit?: number;
+        target_debt_id?: number;
+        target_debt_ids?: number[];
+      }) => {
         const db = await getWebDb();
         amount = roundCurrency(amount);
         const extraProfit = roundCurrency(profit || 0);
         assertValidTransactionInput({ type: 'DEBT_PAYMENT', amount, fee: extraProfit, channel, customer_id, is_debt: false });
         if (db.wallets[channel] === undefined) throw new Error('Selected wallet does not exist.');
         if (!db.customers.some((customer: Customer) => customer.id === customer_id)) throw new Error('Selected debtor does not exist.');
-        const outstanding = target_debt_id ? getDebtEntryOutstanding(db.transactions.filter((tx: Transaction) => tx.customer_id === customer_id), target_debt_id) : getDebtBalanceForCustomer(db.transactions, customer_id);
+        const targetDebtIds = [...new Set(target_debt_ids?.length ? target_debt_ids : target_debt_id ? [target_debt_id] : [])];
+        if (targetDebtIds.some((id) => !Number.isSafeInteger(id) || id <= 0)) {
+          throw new Error('Selected debt is invalid.');
+        }
+        const customerTransactions = db.transactions.filter((tx: Transaction) => tx.customer_id === customer_id);
+        const selectedDebts = targetDebtIds.map((id) => {
+          const debt = customerTransactions.find((tx: Transaction) => tx.id === id && tx.is_debt === 1);
+          if (!debt) throw new Error('Selected debt does not exist for this debtor.');
+          if (new Date(debt.created_at).getTime() > Date.now()) throw new Error('A debt cannot be paid before it was recorded.');
+          return { id, createdAt: debt.created_at, outstanding: getDebtEntryOutstanding(customerTransactions, id) };
+        }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() || a.id - b.id);
+        const outstanding = selectedDebts.length
+          ? selectedDebts.reduce((sum, debt) => sum + debt.outstanding, 0)
+          : getDebtBalanceForCustomer(db.transactions, customer_id);
         if (exceedsCurrencyAmount(amount, outstanding)) {
           throw new Error(`Debt payment cannot exceed the outstanding balance of ${outstanding.toFixed(2)}.`);
         }
-        if (target_debt_id) {
-          const targetDebt = db.transactions.find((tx: Transaction) => tx.id === target_debt_id && tx.customer_id === customer_id && tx.is_debt === 1);
-          if (!targetDebt) throw new Error('Selected debt does not exist for this debtor.');
-          if (new Date(targetDebt.created_at).getTime() > Date.now()) {
-            throw new Error('A debt cannot be paid before it was recorded.');
-          }
-        }
-        const newTx = {
-          id: getNextWebId(db.transactions),
-          type: 'DEBT_PAYMENT' as const,
-          amount,
-          fee: extraProfit,
-          channel,
-          customer_id,
-          is_debt: 0,
-          target_debt_id: target_debt_id || null,
-          created_at: new Date().toISOString()
-        };
-        db.transactions.push(newTx);
-        applyTxToWallets(db.wallets, newTx, false);
+        const paymentPlan = selectedDebts.length
+          ? allocateTargetedDebtPayment(selectedDebts, amount)
+          : [{ targetDebtId: null, amount }];
+        const rows = paymentPlan.length ? paymentPlan : [{ targetDebtId: selectedDebts[0]?.id ?? null, amount: 0 }];
+        const createdAt = new Date().toISOString();
+        rows.forEach((payment, index) => {
+          const newTx = {
+            id: getNextWebId(db.transactions),
+            type: 'DEBT_PAYMENT' as const,
+            amount: roundCurrency(payment.amount),
+            fee: index === 0 ? extraProfit : 0,
+            channel,
+            customer_id,
+            is_debt: 0,
+            target_debt_id: payment.targetDebtId,
+            created_at: createdAt,
+          };
+          db.transactions.push(newTx);
+          applyTxToWallets(db.wallets, newTx, false);
+        });
         await saveWebDb(db);
       },
       onMutate: async ({ customer_id, amount }) => {
@@ -2813,12 +2834,14 @@ export function useDbQueries() {
         channel,
         profit,
         target_debt_id,
+        target_debt_ids,
       }: {
         customer_id: number;
         amount: number;
         channel: string;
         profit?: number;
         target_debt_id?: number;
+        target_debt_ids?: number[];
       }) => {
         const createdAt = new Date().toISOString();
         amount = roundCurrency(amount);
@@ -2829,16 +2852,23 @@ export function useDbQueries() {
           if (!wallet) throw new Error('Selected wallet does not exist.');
           const customer = await txn.getFirstAsync<{ id: number }>("SELECT id FROM customers WHERE id = ?", [customer_id]);
           if (!customer) throw new Error('Selected debtor does not exist.');
-          const targetedOutstanding = target_debt_id
-            ? getDebtEntryOutstanding(
-              await txn.getAllAsync<Transaction>(`
-                SELECT id, type, amount, fee, is_debt, deduct_fee, target_debt_id, created_at
-                FROM transactions WHERE customer_id = ?
-                ORDER BY created_at ASC, id ASC
-              `, [customer_id]),
-              target_debt_id
-            )
-            : null;
+          const targetDebtIds = [...new Set(target_debt_ids?.length ? target_debt_ids : target_debt_id ? [target_debt_id] : [])];
+          if (targetDebtIds.some((id) => !Number.isSafeInteger(id) || id <= 0)) {
+            throw new Error('Selected debt is invalid.');
+          }
+          const customerTransactions = await txn.getAllAsync<Transaction>(`
+            SELECT id, type, amount, fee, is_debt, deduct_fee, target_debt_id, created_at
+            FROM transactions WHERE customer_id = ?
+            ORDER BY created_at ASC, id ASC
+          `, [customer_id]);
+          const selectedDebts = targetDebtIds.map((id) => {
+            const debt = customerTransactions.find((tx) => tx.id === id && tx.is_debt === 1);
+            if (!debt) throw new Error('Selected debt does not exist for this debtor.');
+            if (new Date(debt.created_at).getTime() > new Date(createdAt).getTime()) {
+              throw new Error('A debt cannot be paid before it was recorded.');
+            }
+            return { id, createdAt: debt.created_at, outstanding: getDebtEntryOutstanding(customerTransactions, id) };
+          }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() || a.id - b.id);
           const debtResult = await txn.getFirstAsync<{ balance: number }>(
             `SELECT
               COALESCE(SUM(CASE WHEN is_debt = 1 THEN amount + CASE WHEN deduct_fee = 1 THEN 0 ELSE fee END ELSE 0 END), 0) -
@@ -2846,14 +2876,22 @@ export function useDbQueries() {
              FROM transactions WHERE customer_id = ?`,
             [customer_id]
           );
-          const outstanding = targetedOutstanding ?? debtResult?.balance ?? 0;
+          const outstanding = selectedDebts.length
+            ? selectedDebts.reduce((sum, debt) => sum + debt.outstanding, 0)
+            : debtResult?.balance ?? 0;
           if (exceedsCurrencyAmount(amount, outstanding)) {
             throw new Error(`Debt payment cannot exceed the outstanding balance of ${outstanding.toFixed(2)}.`);
           }
-          await txn.runAsync(
-            "INSERT INTO transactions (type, amount, fee, channel, customer_id, is_debt, target_debt_id, created_at) VALUES ('DEBT_PAYMENT', ?, ?, ?, ?, 0, ?, ?)",
-            [amount, extraProfit, channel, customer_id, target_debt_id || null, createdAt]
-          );
+          const paymentPlan = selectedDebts.length
+            ? allocateTargetedDebtPayment(selectedDebts, amount)
+            : [{ targetDebtId: null, amount }];
+          const rows = paymentPlan.length ? paymentPlan : [{ targetDebtId: selectedDebts[0]?.id ?? null, amount: 0 }];
+          for (const [index, payment] of rows.entries()) {
+            await txn.runAsync(
+              "INSERT INTO transactions (type, amount, fee, channel, customer_id, is_debt, target_debt_id, created_at) VALUES ('DEBT_PAYMENT', ?, ?, ?, ?, 0, ?, ?)",
+              [roundCurrency(payment.amount), index === 0 ? extraProfit : 0, channel, customer_id, payment.targetDebtId, createdAt]
+            );
+          }
         });
       },
       onMutate: async ({ customer_id, amount }) => {
