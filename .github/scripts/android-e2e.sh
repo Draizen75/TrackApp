@@ -1,47 +1,40 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-adb devices -l
-adb wait-for-device
-adb shell getprop sys.boot_completed
-
-echo "Inspect generated Android project:"
-ls -la android
-
-gradle --no-daemon -p android assembleDebug
-adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 mkdir -p .maestro-results
 
-# Debug React Native builds load their JavaScript bundle from Metro.
-# Start Metro directly instead of through `expo start`: Expo CLI attempts to
-# install React Native DevTools (Chromium) even in headless CI, which fails on
-# GitHub's unprivileged Linux runner due to Chromium's SUID sandbox requirement.
-# The project's metro.config.js still applies Expo Router and NativeWind config.
-node ./node_modules/metro/src/cli.js start --config metro.config.js --host 0.0.0.0 --port 8081 --reset-cache > .maestro-results/metro.log 2>&1 &
-METRO_PID=$!
-cleanup() {
-  kill "$METRO_PID" >/dev/null 2>&1 || true
-}
-trap cleanup EXIT
-
-METRO_READY=0
+echo "Waiting for Android emulator boot..."
+adb wait-for-device
 for attempt in $(seq 1 60); do
-  if curl --silent --fail http://127.0.0.1:8081/status | grep -q "running"; then
-    METRO_READY=1
+  if [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; then
     break
   fi
   sleep 2
 done
-
-if [ "$METRO_READY" -ne 1 ]; then
-  echo "Metro did not become ready. Recent Metro output:"
-  tail -n 100 .maestro-results/metro.log || true
+if [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" != "1" ]; then
+  echo "Android emulator did not finish booting."
+  adb devices -l || true
   exit 1
 fi
 
-adb reverse tcp:8081 tcp:8081
+# The emulator is x86_64. Building every Android ABI needlessly compiles
+# native C/C++ dependencies four times and was consuming 17-28 minutes.
+# Restrict the CI APK to the emulator ABI.
+#
+# Use a release APK so the JS bundle is embedded in the APK. This removes the
+# separate Metro server dependency (which repeatedly failed to start in CI)
+# while still exercising the real native app and Maestro UI flow.
+gradle --no-daemon -p android -PreactNativeArchitectures=x86_64 assembleRelease
 
-# Keep diagnostics even when Maestro assertions fail.
+APK="android/app/build/outputs/apk/release/app-release.apk"
+if [ ! -f "$APK" ]; then
+  echo "Expected release APK was not generated: $APK"
+  find android/app/build/outputs/apk -maxdepth 3 -type f -print || true
+  exit 1
+fi
+
+adb install -r "$APK"
+
 set +e
 maestro test --format junit --output .maestro-results/junit.xml .maestro
 TEST_EXIT_CODE=$?
@@ -53,7 +46,6 @@ if [ "$TEST_EXIT_CODE" -ne 0 ]; then
   adb shell uiautomator dump /sdcard/maestro-window.xml >/dev/null 2>&1 || true
   adb pull /sdcard/maestro-window.xml .maestro-results/window.xml >/dev/null 2>&1 || true
   adb logcat -d -v time > .maestro-results/logcat.txt || true
-  tail -n 150 .maestro-results/metro.log || true
 fi
 
 exit "$TEST_EXIT_CODE"
