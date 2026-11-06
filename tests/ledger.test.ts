@@ -341,6 +341,19 @@ describe('ledger safety rules', () => {
     expect(isSettlementBreakdownBalanced(0, 1, 25)).toBe(false);
   });
 
+  it('rejects even a one-cent settlement breakdown mismatch', () => {
+    expect(isSettlementBreakdownBalanced(100, 99.99, 0)).toBe(false);
+    expect(isSettlementBreakdownBalanced(100, 99.98, 0.01)).toBe(false);
+    expect(isSettlementBreakdownBalanced(100, 99.99, 0.01)).toBe(true);
+  });
+
+  it('rejects non-finite and negative settlement breakdown values', () => {
+    expect(isSettlementBreakdownBalanced(Number.NaN, 0, 0)).toBe(false);
+    expect(isSettlementBreakdownBalanced(100, Number.POSITIVE_INFINITY, 0)).toBe(false);
+    expect(isSettlementBreakdownBalanced(100, -1, 101)).toBe(false);
+    expect(isSettlementBreakdownBalanced(100, 101, -1)).toBe(false);
+  });
+
   it('pages history with a stable date-and-id cursor without duplicates', () => {
     const history = [
       { ...debt, id: 4, amount: 40, created_at: '2026-01-03T00:00:00.000Z' },
