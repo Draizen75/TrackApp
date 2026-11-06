@@ -458,6 +458,7 @@ export interface DebtPaymentAllocation {
 interface DebtLedgerSnapshot {
   debtors: Debtor[];
   allocation: DebtPaymentAllocation;
+  analysis: DebtLedgerAnalysis;
 }
 
 const selectDebtLedgerDebtors = (snapshot: DebtLedgerSnapshot) => snapshot.debtors;
@@ -505,9 +506,22 @@ export function analyzeDebtLedger(transactions: Transaction[]): DebtLedgerAnalys
     const dateKey = extractStoredDateKey(createdAt);
     collectedEarningsByDate.set(dateKey, (collectedEarningsByDate.get(dateKey) || 0) + amount);
   };
-  const sorted = [...transactions].sort(
-    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime() || a.id - b.id
-  );
+  let isChronological = true;
+  for (let index = 1; index < transactions.length; index += 1) {
+    const previous = transactions[index - 1];
+    const current = transactions[index];
+    const previousTime = new Date(previous.created_at).getTime();
+    const currentTime = new Date(current.created_at).getTime();
+    if (previousTime > currentTime || (previousTime === currentTime && previous.id > current.id)) {
+      isChronological = false;
+      break;
+    }
+  }
+  const sorted = isChronological
+    ? transactions
+    : [...transactions].sort(
+      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime() || a.id - b.id
+    );
 
   for (const transaction of sorted) {
     if (transaction.is_debt !== 1 && transaction.type !== 'DEBT_PAYMENT') continue;
@@ -1207,13 +1221,17 @@ const repairBrokenWebDebtPayments = async (db: any) => {
   await saveWebDb(db);
 };
 
-const getDashboardMetrics = (db: any, daysLimit = 30) => {
+const getDashboardMetrics = (
+  db: any,
+  daysLimit = 30,
+  sharedDebtAnalysis?: DebtLedgerAnalysis,
+) => {
   const transactions = (db.transactions || []) as Transaction[];
   const walletsMap = db.wallets || {};
   const dailyTransactionMetrics = getDailyTransactionMetrics(transactions);
 
   const grossProfit = transactions.reduce((sum: number, tx: any) => sum + (Number(tx.fee) || 0), 0);
-  const debtAnalysis = analyzeDebtLedger(transactions);
+  const debtAnalysis = sharedDebtAnalysis || analyzeDebtLedger(transactions);
   const debtAllocation = debtAnalysis.allocation;
   const immediateEarnings = transactions.reduce((sum: number, tx: any) => {
     if (tx.is_debt === 1 || tx.type === 'DEBT_PAYMENT') return sum;
@@ -1444,7 +1462,12 @@ export function useWebDbQueries() {
       enabled,
       queryFn: async () => {
         const db = await getWebDb();
-        return getDashboardMetrics(db, daysLimit);
+        const debtSnapshot = await queryClient.fetchQuery({
+          queryKey: ['debtors'],
+          queryFn: loadDebtLedgerSnapshot,
+          staleTime: 1000,
+        });
+        return getDashboardMetrics(db, daysLimit, debtSnapshot.analysis);
       }
     });
   };
@@ -1495,7 +1518,7 @@ export function useWebDbQueries() {
       });
     }
     debtors.sort((a, b) => b.balance - a.balance || a.name.localeCompare(b.name));
-    return { debtors, allocation: debtAnalysis.allocation };
+    return { debtors, allocation: debtAnalysis.allocation, analysis: debtAnalysis };
   };
 
   const useDebtors = (enabled = true) => {
@@ -2205,14 +2228,12 @@ export function useDbQueries() {
             COUNT(*) AS transaction_count
           FROM transactions
         `);
-        const debtTransactions = await db.getAllAsync<Transaction>(`
-          SELECT t.id, t.type, t.amount, t.fee, t.customer_id, t.is_debt, t.deduct_fee,
-            t.target_debt_id, t.created_at, c.name AS customer_name
-          FROM transactions t
-          LEFT JOIN customers c ON t.customer_id = c.id
-          WHERE t.is_debt = 1 OR t.type = 'DEBT_PAYMENT'
-          ORDER BY t.created_at ASC, t.id ASC
-        `);
+        const debtSnapshot = await queryClient.fetchQuery({
+          queryKey: ['debtors'],
+          queryFn: loadDebtLedgerSnapshot,
+          staleTime: 1000,
+        });
+        const debtAnalysis = debtSnapshot.analysis;
         const loopLimit = Math.max(31, daysLimit);
         const today = new Date();
         const windowStart = new Date(today.getFullYear(), today.getMonth(), today.getDate() - loopLimit + 1);
@@ -2244,7 +2265,6 @@ export function useDbQueries() {
           debtCollected: Number(row.debt_collected) || 0,
         }]));
         const grossProfit = Number(totals?.gross_profit) || 0;
-        const debtAnalysis = analyzeDebtLedger(debtTransactions);
         const debtAllocation = debtAnalysis.allocation;
         const immediateEarnings = Number(totals?.immediate_earnings) || 0;
         const earningsPaid = immediateEarnings + debtAllocation.contractualEarningsPaid + debtAllocation.extraProfitPaid;
@@ -2307,12 +2327,9 @@ export function useDbQueries() {
           month: monthSummary,
         };
 
-        const customerNameById = new Map<number, string>();
-        debtTransactions.forEach((tx) => {
-          if (tx.customer_id != null && tx.customer_name && !customerNameById.has(tx.customer_id)) {
-            customerNameById.set(tx.customer_id, tx.customer_name);
-          }
-        });
+        const customerNameById = new Map<number, string>(
+          debtSnapshot.debtors.map((debtor) => [debtor.id, debtor.name])
+        );
         const overdueDebtors: { name: string; balance: number; oldest_debt_date: string | null }[] = [];
         for (const [customerId, summary] of debtAnalysis.customers.entries()) {
           if (hasNonZeroCurrency(summary.balance)) {
@@ -2451,7 +2468,7 @@ export function useDbQueries() {
       });
     }
     debtors.sort((a, b) => b.balance - a.balance || a.name.localeCompare(b.name));
-    return { debtors, allocation: debtAnalysis.allocation };
+    return { debtors, allocation: debtAnalysis.allocation, analysis: debtAnalysis };
   };
 
   const useDebtLedgerSummary = (enabled = true) => {
