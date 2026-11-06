@@ -2,16 +2,28 @@ appId: com.draizen.TrackApp
 ---
 - launchApp:
     clearState: true
+# The hosted emulator can occasionally show a system-level Pixel Launcher ANR
+# dialog while the app is already rendered. Dismiss it so it does not cover
+# the app UI and make Maestro report false visibility failures.
+- tapOn:
+    text: "Wait"
+    optional: true
 - extendedWaitUntil:
     visible: "Earnings Collected"
     timeout: 30000
 - assertVisible: "Earnings Collected"
 - tapOn: "Settings"
+- tapOn:
+    text: "Wait"
+    optional: true
 - extendedWaitUntil:
     visible: "Wallets"
     timeout: 15000
 - assertVisible: "Wallets"
 - tapOn: "Dashboard"
+- tapOn:
+    text: "Wait"
+    optional: true
 - extendedWaitUntil:
     visible: "Earnings Collected"
     timeout: 15000
