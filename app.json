@@ -20,6 +20,7 @@
         "backgroundColor": "#08090f",
         "foregroundImage": "./assets/images/android-icon-foreground.png"
       },
+      "softwareKeyboardLayoutMode": "resize",
       "predictiveBackGestureEnabled": false,
       "package": "com.draizen.TrackApp"
     },

@@ -7,11 +7,12 @@ import * as Haptics from 'expo-haptics';
 import { History, Pencil, RotateCcw, Search, UserPlus } from 'lucide-react-native';
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
-import { KeyboardAvoidingView, ScrollView, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Keyboard, KeyboardAvoidingView, ScrollView, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as z from 'zod';
 import { ledgerColors as C } from '@/theme/ledger';
 import { calculateSuggestedEntryFee, getEntryPreviewRows } from '@/utils/entry-preview';
+import { getEntryActionBarBottomPadding } from '@/utils/entry-layout';
 import { useScreenFocus } from '@/hooks/useScreenFocus';
 
 // ─── Obsidian & Gold Design ────────────────────────────────────────────────────
@@ -69,6 +70,24 @@ export default function EntryScreen() {
   const [newCustomerPhone, setNewCustomerPhone] = useState('');
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [isFeeOverride, setIsFeeOverride] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const showSubscription = Keyboard.addListener('keyboardDidShow', () => setIsKeyboardVisible(true));
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => setIsKeyboardVisible(false));
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => () => {
+      Keyboard.dismiss();
+      setIsKeyboardVisible(false);
+    }, [])
+  );
 
   const { control, handleSubmit, setValue, formState: { errors, isSubmitting }, reset } = useForm<EntryFormValues>({
     resolver: zodResolver(entrySchema),
@@ -266,7 +285,9 @@ export default function EntryScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}>
       <KeyboardAvoidingView
-        behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'}
+        // Android's native `resize` mode owns the IME layout. Applying a second
+        // JavaScript offset leaves stale whitespace after the keyboard closes.
+        behavior={process.env.EXPO_OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1 }}
       >
         <ScrollView
@@ -710,7 +731,7 @@ export default function EntryScreen() {
         <View style={{
           paddingHorizontal: 20,
           paddingTop: 10,
-          paddingBottom: 62 + Math.max(insets.bottom, 8),
+          paddingBottom: getEntryActionBarBottomPadding(insets.bottom, isKeyboardVisible),
           borderTopWidth: 1,
           borderTopColor: C.border,
           backgroundColor: C.bg,

@@ -56,6 +56,7 @@ export default function TabsLayout() {
         name="entry"
         options={{
           title: 'Quick Entry',
+          tabBarHideOnKeyboard: true,
           tabBarIcon: ({ color, size }) => <PlusCircle size={size || 20} color={color} />,
         }}
       />
