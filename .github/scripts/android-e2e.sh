@@ -17,7 +17,7 @@ mkdir -p .maestro-results
 # install React Native DevTools (Chromium) even in headless CI, which fails on
 # GitHub's unprivileged Linux runner due to Chromium's SUID sandbox requirement.
 # The project's metro.config.js still applies Expo Router and NativeWind config.
-./node_modules/.bin/metro start --config metro.config.js --host 0.0.0.0 --port 8081 --reset-cache > .maestro-results/metro.log 2>&1 &
+node ./node_modules/metro/src/cli.js start --config metro.config.js --host 0.0.0.0 --port 8081 --reset-cache > .maestro-results/metro.log 2>&1 &
 METRO_PID=$!
 cleanup() {
   kill "$METRO_PID" >/dev/null 2>&1 || true
