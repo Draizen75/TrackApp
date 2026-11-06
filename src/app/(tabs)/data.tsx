@@ -788,7 +788,7 @@ export default function DataScreen() {
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingTop: 16 }}>
             <View style={{ alignItems: 'center', flex: 1 }}>
               <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 6 }}>Transactions</Text>
-              <Text style={{ color: C.text1, fontSize: 16, fontWeight: '900' }}>{dashboardDataResult ? dashboardData.transactionCount : '—'}</Text>
+              <Text style={{ color: C.text1, fontSize: 16, fontWeight: '900' }}>{dashboardDataResult ? dashboardDataResult.transactionCount : '—'}</Text>
             </View>
             <View style={{ alignItems: 'center', flex: 1, borderLeftWidth: 1, borderRightWidth: 1, borderColor: C.border }}>
               <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 6 }}>Wallets</Text>
