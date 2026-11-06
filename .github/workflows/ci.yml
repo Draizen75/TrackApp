@@ -76,15 +76,26 @@ jobs:
       - name: Set up Android emulator and run Maestro tests
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: 34
           target: google_apis
           arch: x86_64
-          profile: pixel_2
-          emulator-boot-timeout: 900
+          profile: pixel_7_pro
+          emulator-boot-timeout: 600
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
             adb devices -l
+            adb wait-for-device
+            for attempt in $(seq 1 60); do
+              booted=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
+              if [ "$booted" = "1" ]; then
+                echo "Android emulator boot completed."
+                break
+              fi
+              echo "Waiting for Android boot completion ($attempt/60)..."
+              sleep 5
+            done
+            test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
             cd android
             ./gradlew --no-daemon assembleDebug
             adb install -r app/build/outputs/apk/debug/app-debug.apk
