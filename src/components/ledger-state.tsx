@@ -8,19 +8,22 @@ type StateTone = 'neutral' | 'accent';
 export function LedgerLoadingState({ label = 'Loading your ledger…' }: { label?: string }) {
   return (
     <View
-      accessibilityRole="progressbar"
       style={{
         flex: 1,
         minHeight: 180,
         alignItems: 'center',
         justifyContent: 'center',
-        gap: ledgerSpacing.sm,
         backgroundColor: C.bg,
         padding: ledgerSpacing.xl,
       }}
     >
       <ActivityIndicator size="small" color={C.accent} />
-      <Text style={{ color: C.text2, fontSize: 13, fontWeight: '600' }}>{label}</Text>
+      <Text
+        accessibilityLabel={label}
+        style={{ color: C.text2, fontSize: 13, fontWeight: '600', marginTop: ledgerSpacing.sm }}
+      >
+        {label}
+      </Text>
     </View>
   );
 }
