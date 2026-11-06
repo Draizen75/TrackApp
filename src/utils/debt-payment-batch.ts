@@ -31,3 +31,30 @@ export function allocateTargetedDebtPayment(
 
   return payments;
 }
+
+export type TargetedDebtPaymentRecord = TargetedDebtPayment & {
+  fee: number;
+};
+
+/**
+ * Produces the exact ledger rows shared by web and SQLite persistence.
+ * Extra profit belongs to the settlement, not every debt allocation, so it
+ * is attached to the first row exactly once (including profit-only rows).
+ */
+export function buildTargetedDebtPaymentRecords(
+  selectedDebts: TargetedDebtBalance[],
+  principalAmount: number,
+  extraProfit: number,
+): TargetedDebtPaymentRecord[] {
+  const plan = selectedDebts.length
+    ? allocateTargetedDebtPayment(selectedDebts, principalAmount)
+    : [{ targetDebtId: null, amount: principalAmount }];
+  const rows = plan.length
+    ? plan
+    : [{ targetDebtId: selectedDebts[0]?.id ?? null, amount: 0 }];
+
+  return rows.map((payment, index) => ({
+    ...payment,
+    fee: index === 0 ? extraProfit : 0,
+  }));
+}
