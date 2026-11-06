@@ -1526,6 +1526,7 @@ export function useWebDbQueries() {
       queryKey: ['debtors'],
       enabled,
       queryFn: loadDebtLedgerSnapshot,
+      staleTime: 1000,
       select: selectDebtLedgerDebtors,
     });
   };
@@ -1535,6 +1536,7 @@ export function useWebDbQueries() {
       queryKey: ['debtors'],
       enabled,
       queryFn: loadDebtLedgerSnapshot,
+      staleTime: 1000,
       select: selectDebtLedgerAllocation,
     });
   };
@@ -2431,6 +2433,7 @@ export function useDbQueries() {
       queryKey: ['debtors'],
       enabled,
       queryFn: loadDebtLedgerSnapshot,
+      staleTime: 1000,
       select: selectDebtLedgerDebtors,
     });
   };
@@ -2476,6 +2479,7 @@ export function useDbQueries() {
       queryKey: ['debtors'],
       enabled,
       queryFn: loadDebtLedgerSnapshot,
+      staleTime: 1000,
       select: selectDebtLedgerAllocation,
     });
   };
