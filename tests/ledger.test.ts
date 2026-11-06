@@ -10,6 +10,7 @@ import {
   getDebtOutstandingById,
   getDebtorBalanceStatus,
   getDebtEntryOutstanding,
+  isSettlementBreakdownBalanced,
   paginateTransactionHistory,
   roundCurrency,
   sortTransactionsNewestFirst,
@@ -325,6 +326,32 @@ describe('ledger safety rules', () => {
   it('caps a selected-debt settlement while preserving excess as suggested profit', () => {
     expect(splitSettlementReceived(60, 55)).toEqual({ principal: 55, suggestedProfit: 5 });
     expect(splitSettlementReceived(40, 55)).toEqual({ principal: 40, suggestedProfit: 0 });
+  });
+
+  it('requires every received peso to be accounted for as principal or extra profit', () => {
+    const split = splitSettlementReceived(2600, 2550);
+    expect(split).toEqual({ principal: 2550, suggestedProfit: 50 });
+    expect(isSettlementBreakdownBalanced(2600, split.principal, split.suggestedProfit)).toBe(true);
+    expect(isSettlementBreakdownBalanced(2600, split.principal, 0)).toBe(false);
+    expect(isSettlementBreakdownBalanced(2550, 2550, 0)).toBe(true);
+  });
+
+  it('continues to allow profit-only entries with zero principal received', () => {
+    expect(isSettlementBreakdownBalanced(0, 0, 25)).toBe(true);
+    expect(isSettlementBreakdownBalanced(0, 1, 25)).toBe(false);
+  });
+
+  it('rejects even a one-cent settlement breakdown mismatch', () => {
+    expect(isSettlementBreakdownBalanced(100, 99.99, 0)).toBe(false);
+    expect(isSettlementBreakdownBalanced(100, 99.98, 0.01)).toBe(false);
+    expect(isSettlementBreakdownBalanced(100, 99.99, 0.01)).toBe(true);
+  });
+
+  it('rejects non-finite and negative settlement breakdown values', () => {
+    expect(isSettlementBreakdownBalanced(Number.NaN, 0, 0)).toBe(false);
+    expect(isSettlementBreakdownBalanced(100, Number.POSITIVE_INFINITY, 0)).toBe(false);
+    expect(isSettlementBreakdownBalanced(100, -1, 101)).toBe(false);
+    expect(isSettlementBreakdownBalanced(100, 101, -1)).toBe(false);
   });
 
   it('pages history with a stable date-and-id cursor without duplicates', () => {

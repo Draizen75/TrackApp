@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Modal, KeyboardAvoidingView, FlatList, SectionList } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { calculateDebtPaymentAllocation, getDebtOutstandingById, getDebtorBalanceStatus, splitSettlementReceived, useDbQueries, Debtor, Transaction, cleanErrorMessage } from '@/hooks/useDbQueries';
+import { calculateDebtPaymentAllocation, getDebtOutstandingById, getDebtorBalanceStatus, isSettlementBreakdownBalanced, splitSettlementReceived, useDbQueries, Debtor, Transaction, cleanErrorMessage } from '@/hooks/useDbQueries';
 import { ToastNotice, useToast, type ToastType } from '@/components/toast';
 import { GoldButton } from '@/components/gold-button';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -293,7 +293,7 @@ export default function DebtorsScreen() {
     if (process.env.EXPO_OS !== 'web') {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
-    setDetailModalVisible(false);
+    closeDebtorStatement();
     router.push({
       pathname: '/entry',
       params: {
@@ -301,6 +301,15 @@ export default function DebtorsScreen() {
         debtorName: debtor.name,
       },
     });
+  };
+
+  const closeDebtorStatement = () => {
+    setDetailModalVisible(false);
+    // A statement is a fresh session each time it opens. Never carry a prior
+    // batch selection into another visit or another debtor.
+    setIsDebtSelectionMode(false);
+    setSelectedDebtIds([]);
+    setSelectedDebtEntry(null);
   };
 
   const submitSettlement = async () => {
@@ -317,6 +326,16 @@ export default function DebtorsScreen() {
 
     if (received < 0 || profit < 0) {
       setSettlementNotice({ message: 'Please enter non-negative amounts.', type: 'error' });
+      return;
+    }
+    // The entered amount is the total collected. It must be fully accounted
+    // for as principal plus extra profit; otherwise wallet float and ledger
+    // totals silently diverge. A zero-principal profit-only entry remains valid.
+    if (!isSettlementBreakdownBalanced(received, amount, profit)) {
+      setSettlementNotice({
+        message: `Total received (₱${received.toFixed(2)}) must equal principal (₱${amount.toFixed(2)}) plus extra profit (₱${profit.toFixed(2)}). Keep the suggested profit or adjust the received amount.`,
+        type: 'error',
+      });
       return;
     }
     if (amount === 0 && profit <= 0) {
@@ -905,7 +924,7 @@ export default function DebtorsScreen() {
           animationType="slide"
           transparent={false}
           visible={detailModalVisible}
-          onRequestClose={() => setDetailModalVisible(false)}
+          onRequestClose={closeDebtorStatement}
         >
           <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }} edges={['top', 'bottom']}>
             <KeyboardAvoidingView style={{ flex: 1 }} behavior={process.env.EXPO_OS === 'ios' ? 'padding' : undefined}>
@@ -917,7 +936,7 @@ export default function DebtorsScreen() {
                   <Text style={{ color: C.text1, fontSize: 20, fontWeight: '800', marginTop: 2 }}>{selectedDebtor?.name}</Text>
                 </View>
                 <TouchableOpacity 
-                  onPress={() => setDetailModalVisible(false)} 
+                  onPress={closeDebtorStatement} 
                 accessibilityRole="button"
                 accessibilityLabel="Close debtor statement"
                 hitSlop={10}
@@ -1070,6 +1089,9 @@ export default function DebtorsScreen() {
                   const isSelectableDebt = tx.is_debt === 1 && (outstandingByDebtId.get(tx.id) || 0) > 0.01;
                   const isSelectedDebt = activeSelectedDebtIds.includes(tx.id);
                   const txTotal = isPayment ? tx.amount : (tx.amount + (tx.deduct_fee === 1 ? 0 : tx.fee));
+                  const remainingDebtBalance = tx.is_debt === 1
+                    ? outstandingByDebtId.get(tx.id) || 0
+                    : null;
                   const isInterestOnlyPayment = isPayment && tx.amount === 0 && tx.fee > 0;
                   const formattedDate = tx.created_at
                     ? new Date(tx.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -1107,6 +1129,11 @@ export default function DebtorsScreen() {
                       </View>
                       <View style={{ alignItems: 'flex-end' }}>
                         <Text style={{ color: isPayment ? C.success : C.danger, fontSize: 13, fontWeight: '800' }}>{isPayment ? '-' : '+'}₱{txTotal.toFixed(2)}</Text>
+                        {remainingDebtBalance !== null && (
+                          <Text style={{ color: remainingDebtBalance > 0.01 ? C.accent : C.success, fontSize: 10, fontWeight: '700' }}>
+                            {remainingDebtBalance > 0.01 ? `Remaining ₱${remainingDebtBalance.toFixed(2)}` : 'Fully paid'}
+                          </Text>
+                        )}
                         {isPayment && tx.fee > 0 && <Text style={{ color: C.accent, fontSize: 10 }}>Profit paid PHP {tx.fee.toFixed(2)}</Text>}
                         {!isPayment && tx.fee > 0 && <Text style={{ color: C.text3, fontSize: 10 }}>{tx.deduct_fee === 1 ? `Deducted ₱${tx.fee.toFixed(2)} fee` : `Inc. ₱${tx.fee.toFixed(2)} fee`}</Text>}
                         {!isDebtSelectionMode && (
