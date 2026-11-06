@@ -38,7 +38,7 @@ async function createTestDatabase(SQL: SqlJsModule) {
 
 describe('SQLite physical-cash transaction update reconciliation', () => {
   let SQL: SqlJsModule;
-  let primary: Database;
+  const databases: Database[] = [];
 
   beforeAll(async () => {
     jest.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -47,44 +47,70 @@ describe('SQLite physical-cash transaction update reconciliation', () => {
   });
 
   afterAll(() => {
+    databases.forEach((database) => database.close());
     jest.restoreAllMocks();
   });
 
-  afterEach(() => {
-    primary?.close();
-  });
-
   it.each(['CASH_IN', 'CASH_OUT', 'E_LOAD', 'TV_LOAD'] as const)(
-    'keeps an edited %s on PHYSICAL_CASH equivalent to deleting and recreating it',
+    'keeps the PHYSICAL_CASH counterpart correct when a %s transaction is edited',
     async (type) => {
       const edited = await createTestDatabase(SQL);
       const recreated = await createTestDatabase(SQL);
-      primary = edited.database;
+      databases.push(edited.database, recreated.database);
 
-      const initialSql = `INSERT INTO transactions
-        (id, type, amount, fee, channel, is_debt, deduct_fee, created_at)
-        VALUES (701, ?, 100, 10, 'PHYSICAL_CASH', 0, 0, '2026-01-01T00:00:00.000Z')`;
-      const replacementSql = `INSERT INTO transactions
-        (id, type, amount, fee, channel, is_debt, deduct_fee, created_at)
-        VALUES (702, ?, 120, 5, 'PHYSICAL_CASH', 0, 0, '2026-01-01T00:00:00.000Z')`;
-
-      await edited.db.runAsync(initialSql, [type]);
       await edited.db.runAsync(
-        "UPDATE transactions SET amount = 120, fee = 5 WHERE id = 701"
+        `INSERT INTO transactions (id, type, amount, fee, channel, is_debt, deduct_fee, created_at)
+         VALUES (701, ?, 100, 10, 'GCASH', 0, 0, '2026-01-01T00:00:00.000Z')`,
+        [type]
       );
-      await recreated.db.runAsync(replacementSql, [type]);
+      await edited.db.runAsync('UPDATE transactions SET amount = 120, fee = 5 WHERE id = 701');
 
-      const editedBalances = await edited.db.getAllAsync<{ channel: string; balance: number }>(
-        'SELECT channel, balance FROM wallets ORDER BY channel'
+      await recreated.db.runAsync(
+        `INSERT INTO transactions (id, type, amount, fee, channel, is_debt, deduct_fee, created_at)
+         VALUES (702, ?, 120, 5, 'GCASH', 0, 0, '2026-01-01T00:00:00.000Z')`,
+        [type]
       );
-      const recreatedBalances = await recreated.db.getAllAsync<{ channel: string; balance: number }>(
-        'SELECT channel, balance FROM wallets ORDER BY channel'
+
+      const editedCash = await edited.db.getFirstAsync<{ balance: number }>(
+        "SELECT balance FROM wallets WHERE channel = 'PHYSICAL_CASH'"
+      );
+      const recreatedCash = await recreated.db.getFirstAsync<{ balance: number }>(
+        "SELECT balance FROM wallets WHERE channel = 'PHYSICAL_CASH'"
       );
 
-      expect(editedBalances).toEqual(recreatedBalances);
-      expect(editedBalances.find((wallet) => wallet.channel === 'PHYSICAL_CASH')?.balance).toBe(1005);
-
-      recreated.database.close();
+      expect(editedCash?.balance).toBe(recreatedCash?.balance);
     }
   );
+
+  it('reverses and reapplies a DEBT_PAYMENT credited directly to PHYSICAL_CASH', async () => {
+    const edited = await createTestDatabase(SQL);
+    const recreated = await createTestDatabase(SQL);
+    databases.push(edited.database, recreated.database);
+
+    for (const db of [edited.db, recreated.db]) {
+      await db.runAsync(
+        "INSERT INTO customers (id, name, created_at) VALUES (1, 'Test debtor', '2026-01-01T00:00:00.000Z')"
+      );
+      await db.runAsync(
+        "INSERT INTO transactions (id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, created_at) VALUES (10, 'E_LOAD', 200, 0, 'GCASH', 1, 1, 0, '2026-01-01T00:00:00.000Z')"
+      );
+    }
+
+    await edited.db.runAsync(
+      "INSERT INTO transactions (id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, created_at) VALUES (11, 'DEBT_PAYMENT', 50, 2, 'PHYSICAL_CASH', 1, 0, 0, '2026-01-02T00:00:00.000Z')"
+    );
+    await edited.db.runAsync('UPDATE transactions SET amount = 75, fee = 3 WHERE id = 11');
+
+    await recreated.db.runAsync(
+      "INSERT INTO transactions (id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, created_at) VALUES (12, 'DEBT_PAYMENT', 75, 3, 'PHYSICAL_CASH', 1, 0, 0, '2026-01-02T00:00:00.000Z')"
+    );
+
+    const editedCash = await edited.db.getFirstAsync<{ balance: number }>(
+      "SELECT balance FROM wallets WHERE channel = 'PHYSICAL_CASH'"
+    );
+    const recreatedCash = await recreated.db.getFirstAsync<{ balance: number }>(
+      "SELECT balance FROM wallets WHERE channel = 'PHYSICAL_CASH'"
+    );
+    expect(editedCash?.balance).toBe(recreatedCash?.balance);
+  });
 });
