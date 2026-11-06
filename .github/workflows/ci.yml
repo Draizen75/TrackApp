@@ -42,3 +42,51 @@ jobs:
 
       - name: ESLint
         run: npm run lint
+
+  android-e2e:
+    name: Android emulator UI regression tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Generate native Android project
+        run: npx expo prebuild --platform android --no-install --non-interactive
+
+      - name: Set up Maestro
+        uses: maestro-org/setup-maestro@v1
+
+      - name: Set up Android emulator and run Maestro tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          script: |
+            cd android
+            ./gradlew --no-daemon assembleDebug
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            cd ..
+            mkdir -p .maestro-results
+            maestro test --format junit --output .maestro-results/junit.xml .maestro
+
+      - name: Upload Android UI test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-maestro-results
+          path: .maestro-results/
+          if-no-files-found: ignore
+          retention-days: 7
