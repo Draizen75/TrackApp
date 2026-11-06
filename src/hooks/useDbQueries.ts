@@ -2459,7 +2459,7 @@ export function useDbQueries() {
   };
 
   const loadDebtLedgerSnapshot = async (): Promise<DebtLedgerSnapshot> => {
-    const [customers, transactions] = await Promise.all([
+    const [customers, transactions, latestActivityRows] = await Promise.all([
       db.getAllAsync<Customer>(`
         SELECT id, name, phone, notes, follow_up_status, last_reminded_at
         FROM customers
@@ -2471,7 +2471,16 @@ export function useDbQueries() {
         WHERE is_debt = 1 OR type = 'DEBT_PAYMENT'
         ORDER BY created_at ASC, id ASC
       `),
+      db.getAllAsync<{ customer_id: number; latest_tx_date: string }>(`
+        SELECT customer_id, MAX(created_at) AS latest_tx_date
+        FROM transactions
+        WHERE customer_id IS NOT NULL
+        GROUP BY customer_id
+      `),
     ]);
+    const latestTransactionByCustomer = new Map(
+      latestActivityRows.map((row) => [row.customer_id, row.latest_tx_date])
+    );
     const debtAnalysis = analyzeDebtLedger(transactions);
     const debtors: Debtor[] = [];
     for (const customer of customers) {
@@ -2487,7 +2496,9 @@ export function useDbQueries() {
         balance: summary.balance,
         oldest_debt_date: hasPositiveCurrency(summary.balance) ? summary.oldestUnpaidDebtDate : null,
         last_payment_date: summary.lastPaymentDate,
-        latest_tx_date: summary.latestTransactionDate,
+        // Keep recent-activity sorting consistent with web: include every
+        // customer-linked transaction, not only debt and payment ledger rows.
+        latest_tx_date: latestTransactionByCustomer.get(customer.id) || summary.latestTransactionDate,
       });
     }
     debtors.sort((a, b) => b.balance - a.balance || a.name.localeCompare(b.name));
