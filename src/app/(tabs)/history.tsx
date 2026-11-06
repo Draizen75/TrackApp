@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, Modal, Switch, KeyboardAvoidingView, FlatList, ListRenderItem } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useDbQueries, Transaction, cleanErrorMessage } from '@/hooks/useDbQueries';
+import { getDebtOutstandingById, useDbQueries, Transaction, cleanErrorMessage } from '@/hooks/useDbQueries';
 import { useToast } from '@/components/toast';
 import { GoldButton } from '@/components/gold-button';
 import * as Haptics from 'expo-haptics';
@@ -185,6 +185,7 @@ export default function HistoryScreen() {
   const { 
     useTransactionHistory,
     useTransactionById,
+    useDebtTransactionsForCustomer,
     useDeleteTransaction, 
     useUpdateTransaction,
     useCustomers,
@@ -231,6 +232,19 @@ export default function HistoryScreen() {
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
   const [detailTx, setDetailTx] = useState<Transaction | null>(null);
+  const {
+    data: detailDebtTransactions,
+    isLoading: isDetailDebtLoading,
+    isError: isDetailDebtError,
+  } = useDebtTransactionsForCustomer(
+    detailTx?.customer_id ?? null,
+    isScreenFocused && detailTx?.type === 'DEBT_PAYMENT',
+  );
+  const detailOutstandingBalance = useMemo(() => {
+    if (!detailTx || detailTx.type !== 'DEBT_PAYMENT' || !Array.isArray(detailDebtTransactions)) return null;
+    const outstandingByDebtId = getDebtOutstandingById(detailDebtTransactions);
+    return Array.from(outstandingByDebtId.values()).reduce((total, amount) => total + amount, 0);
+  }, [detailTx, detailDebtTransactions]);
   const [editAmount, setEditAmount] = useState('');
   const [editFee, setEditFee] = useState('');
   const [editChannel, setEditChannel] = useState<string>('GCASH');
@@ -731,15 +745,32 @@ export default function HistoryScreen() {
           {detailTx && (() => {
             const typeDetails = getTxTypeDetails(detailTx.type);
             const isDebtPayment = detailTx.type === 'DEBT_PAYMENT';
-            const formattedDate = detailTx.created_at ? transactionDateFormatter.format(new Date(detailTx.created_at)) : 'N/A';
-            const feeLabel = isDebtPayment ? 'Profit / Interest' : 'Service Fee';
+            const formattedDate = detailTx.created_at
+              ? new Intl.DateTimeFormat('en-PH', {
+                  year: 'numeric',
+                  month: 'short',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                }).format(new Date(detailTx.created_at))
+              : 'N/A';
+            const principal = Number(detailTx.amount) || 0;
+            const extraProfit = isDebtPayment ? Number(detailTx.fee) || 0 : 0;
+            const totalReceived = principal + extraProfit;
+
+            const ReceiptRow = ({ label, value, valueColor = C.text1 }: { label: string; value: string; valueColor?: string }) => (
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 9 }}>
+                <Text style={{ color: C.text3, fontSize: 12, flex: 1 }}>{label}</Text>
+                <Text style={{ color: valueColor, fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'], textAlign: 'right' }}>{value}</Text>
+              </View>
+            );
 
             return (
-              <View style={{ flex: 1, padding: 20, paddingBottom: 16 }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-                  <View>
-                    <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase' }}>Transaction Details</Text>
-                    <Text style={{ color: C.text1, fontSize: 20, fontWeight: '800', marginTop: 2 }}>Record #{detailTx.id}</Text>
+              <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 16 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: C.text3, fontSize: 10, fontWeight: '800', letterSpacing: 1.6, textTransform: 'uppercase' }}>Transaction receipt</Text>
+                    <Text style={{ color: C.text1, fontSize: 21, fontWeight: '900', marginTop: 3 }}>Record #{detailTx.id}</Text>
                   </View>
                   <TouchableOpacity
                     onPress={() => setDetailTx(null)}
@@ -753,45 +784,93 @@ export default function HistoryScreen() {
                 </View>
 
                 <ScrollView contentContainerStyle={{ paddingBottom: 24 }} showsVerticalScrollIndicator={false}>
-                  <View style={{ backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: ledgerRadius.card, padding: 20, marginBottom: 20 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 18 }}>
-                      <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: typeDetails.bg, borderWidth: 1, borderColor: typeDetails.border }}>
-                        <Text style={{ color: typeDetails.text, fontSize: 10, fontWeight: '900', textTransform: 'uppercase' }}>{typeDetails.label}</Text>
+                  <View style={{ backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 22, padding: 20, marginBottom: 14 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+                      <View style={{ paddingHorizontal: 9, paddingVertical: 5, borderRadius: 7, backgroundColor: typeDetails.bg, borderWidth: 1, borderColor: typeDetails.border }}>
+                        <Text style={{ color: typeDetails.text, fontSize: 10, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.6 }}>{typeDetails.label}</Text>
                       </View>
-                      {detailTx.is_debt === 1 && <Text style={{ color: C.danger, fontSize: 10, fontWeight: '800' }}>UTANG</Text>}
+                      {detailTx.is_debt === 1 && (
+                        <Text style={{ color: C.danger, fontSize: 10, fontWeight: '900', letterSpacing: 0.8 }}>CREDIT / UTANG</Text>
+                      )}
                     </View>
-                    <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>{isDebtPayment ? 'Principal Payment' : 'Transaction Amount'}</Text>
-                    <Text style={{ color: C.text1, fontSize: 32, fontWeight: '900', marginTop: 4 }}>₱{detailTx.amount.toFixed(2)}</Text>
-                    {detailTx.fee > 0 && <Text style={{ color: C.accent, fontSize: 13, fontWeight: '700', marginTop: 6 }}>{feeLabel}: ₱{detailTx.fee.toFixed(2)}</Text>}
+                    <Text style={{ color: C.text3, fontSize: 10, fontWeight: '800', letterSpacing: 1.2, textTransform: 'uppercase' }}>
+                      {isDebtPayment ? 'Total payment received' : 'Transaction amount'}
+                    </Text>
+                    <Text style={{ color: C.accent, fontSize: 34, fontWeight: '900', marginTop: 5, fontVariant: ['tabular-nums'] }}>
+                      ₱{(isDebtPayment ? totalReceived : principal).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </Text>
+                    <Text style={{ color: C.text3, fontSize: 11, marginTop: 8 }}>{formattedDate}</Text>
+                    {isDebtPayment && (
+                      <View style={{ marginTop: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: C.border }}>
+                        <Text style={{ color: C.text2, fontSize: 11, fontWeight: '800', marginBottom: 4 }}>Payment breakdown</Text>
+                        <ReceiptRow label="Principal paid" value={`₱${principal.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
+                        <ReceiptRow label="Extra profit / interest" value={`₱${extraProfit.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} valueColor={C.accent} />
+                        <View style={{ borderTopWidth: 1, borderTopColor: C.border, marginTop: 4, paddingTop: 4 }}>
+                          <ReceiptRow label="Total received" value={`₱${totalReceived.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} valueColor={C.text1} />
+                        </View>
+                      </View>
+                    )}
+                    {!isDebtPayment && detailTx.fee > 0 && (
+                      <Text style={{ color: C.accent, fontSize: 12, fontWeight: '700', marginTop: 8 }}>
+                        Service fee: ₱{detailTx.fee.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </Text>
+                    )}
                   </View>
 
-                  <View style={{ backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: ledgerRadius.card, overflow: 'hidden' }}>
-                    {[
-                      ['Customer', detailTx.customer_name || 'Sari-Sari Anonymous'],
-                      ['Wallet', getWalletLabel(detailTx.channel)],
-                      ['Date & Time', formattedDate],
-                      ['Fee Handling', detailTx.deduct_fee === 1 ? 'Deducted from principal' : 'Charged separately'],
-                    ].map(([label, value], index, rows) => (
-                      <View key={label} style={{ padding: 16, borderBottomWidth: index === rows.length - 1 ? 0 : 1, borderBottomColor: C.border }}>
-                        <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>{label}</Text>
-                        <Text style={{ color: C.text1, fontSize: 14, fontWeight: '700', marginTop: 4 }}>{value}</Text>
-                      </View>
-                    ))}
+                  <View style={{ backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 18, paddingHorizontal: 16, marginBottom: 14 }}>
+                    <Text style={{ color: C.text2, fontSize: 11, fontWeight: '900', letterSpacing: 0.8, textTransform: 'uppercase', paddingTop: 15, paddingBottom: 3 }}>Transaction information</Text>
+                    <ReceiptRow label="Customer" value={detailTx.customer_name || 'Sari-Sari Anonymous'} />
+                    <View style={{ height: 1, backgroundColor: C.border }} />
+                    <ReceiptRow label="Wallet" value={getWalletLabel(detailTx.channel)} />
+                    <View style={{ height: 1, backgroundColor: C.border }} />
+                    <ReceiptRow label="Record ID" value={`#${detailTx.id}`} />
+                    {!isDebtPayment && (
+                      <>
+                        <View style={{ height: 1, backgroundColor: C.border }} />
+                        <ReceiptRow label="Fee handling" value={detailTx.deduct_fee === 1 ? 'Deducted from amount' : 'Charged separately'} />
+                      </>
+                    )}
+                    {isDebtPayment && (
+                      <>
+                        <View style={{ height: 1, backgroundColor: C.border }} />
+                        <View style={{ paddingVertical: 10 }}>
+                          <Text style={{ color: C.text3, fontSize: 11 }}>Remaining debtor balance</Text>
+                          {isDetailDebtLoading ? (
+                            <Text style={{ color: C.text2, fontSize: 13, fontWeight: '700', marginTop: 5 }}>Loading balance…</Text>
+                          ) : isDetailDebtError || detailOutstandingBalance == null ? (
+                            <Text style={{ color: C.text3, fontSize: 13, fontWeight: '700', marginTop: 5 }}>Unavailable</Text>
+                          ) : (
+                            <Text style={{ color: C.accent, fontSize: 20, fontWeight: '900', marginTop: 4, fontVariant: ['tabular-nums'] }}>
+                              ₱{detailOutstandingBalance.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </Text>
+                          )}
+                          <Text style={{ color: C.text3, fontSize: 10, marginTop: 4 }}>Current outstanding balance across this debtor’s open debts</Text>
+                        </View>
+                      </>
+                    )}
                   </View>
+                  {isDebtPayment && (
+                    <View style={{ backgroundColor: C.successDim, borderWidth: 1, borderColor: 'rgba(32,200,117,0.22)', borderRadius: 14, padding: 13, marginBottom: 14 }}>
+                      <Text style={{ color: C.success, fontSize: 11, fontWeight: '800' }}>Individual payment record</Text>
+                      <Text style={{ color: C.text2, fontSize: 11, lineHeight: 17, marginTop: 4 }}>
+                        Each saved debt-payment transaction is shown as its own record in Transaction History, including payments made through multi-debt settlement.
+                      </Text>
+                    </View>
+                  )}
                 </ScrollView>
 
                 <TouchableOpacity
                   onPress={handleEditFromDetails}
                   accessibilityRole="button"
                   accessibilityLabel="Edit this transaction"
-                  style={{ minHeight: 48, borderRadius: 16, borderWidth: 1, borderColor: C.accent, backgroundColor: C.accentDim, alignItems: 'center', justifyContent: 'center', marginTop: 12 }}
+                  style={{ minHeight: 50, borderRadius: 16, borderWidth: 1, borderColor: C.accent, backgroundColor: C.accentDim, alignItems: 'center', justifyContent: 'center', marginTop: 10 }}
                 >
-                  <Text style={{ color: C.accent, fontSize: 12, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase' }}>Edit Transaction</Text>
+                  <Text style={{ color: C.accent, fontSize: 12, fontWeight: '900', letterSpacing: 0.9, textTransform: 'uppercase' }}>Edit transaction</Text>
                 </TouchableOpacity>
               </View>
             );
           })()}
-        </SafeAreaView>
+        </SafeAreaView></SafeAreaView>
       </Modal>
 
       <Modal
