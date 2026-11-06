@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Modal, KeyboardAvoidingView, FlatList, SectionList } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { calculateDebtPaymentAllocation, getDebtOutstandingById, getDebtorBalanceStatus, splitSettlementReceived, useDbQueries, Debtor, Transaction, cleanErrorMessage } from '@/hooks/useDbQueries';
+import { calculateDebtPaymentAllocation, getDebtOutstandingById, getDebtorBalanceStatus, isSettlementBreakdownBalanced, splitSettlementReceived, useDbQueries, Debtor, Transaction, cleanErrorMessage } from '@/hooks/useDbQueries';
 import { ToastNotice, useToast, type ToastType } from '@/components/toast';
 import { GoldButton } from '@/components/gold-button';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -303,6 +303,15 @@ export default function DebtorsScreen() {
     });
   };
 
+  const closeDebtorStatement = () => {
+    setDetailModalVisible(false);
+    // A statement is a fresh session each time it opens. Never carry a prior
+    // batch selection into another visit or another debtor.
+    setIsDebtSelectionMode(false);
+    setSelectedDebtIds([]);
+    setSelectedDebtEntry(null);
+  };
+
   const submitSettlement = async () => {
     if (!selectedDebtor || settleMutation.isPending) return; // Prevent double trigger
     const parsedReceived = parseFloat(settleAmount);
@@ -317,6 +326,16 @@ export default function DebtorsScreen() {
 
     if (received < 0 || profit < 0) {
       setSettlementNotice({ message: 'Please enter non-negative amounts.', type: 'error' });
+      return;
+    }
+    // The entered amount is the total collected. It must be fully accounted
+    // for as principal plus extra profit; otherwise wallet float and ledger
+    // totals silently diverge. A zero-principal profit-only entry remains valid.
+    if (!isSettlementBreakdownBalanced(received, amount, profit)) {
+      setSettlementNotice({
+        message: `Total received (₱${roundCurrency(received).toFixed(2)}) must equal principal (₱${roundCurrency(amount).toFixed(2)}) plus extra profit (₱${roundCurrency(profit).toFixed(2)}). Keep the suggested profit or adjust the received amount.`,
+        type: 'error',
+      });
       return;
     }
     if (amount === 0 && profit <= 0) {
@@ -905,7 +924,7 @@ export default function DebtorsScreen() {
           animationType="slide"
           transparent={false}
           visible={detailModalVisible}
-          onRequestClose={() => setDetailModalVisible(false)}
+          onRequestClose={closeDebtorStatement}
         >
           <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }} edges={['top', 'bottom']}>
             <KeyboardAvoidingView style={{ flex: 1 }} behavior={process.env.EXPO_OS === 'ios' ? 'padding' : undefined}>
@@ -917,7 +936,7 @@ export default function DebtorsScreen() {
                   <Text style={{ color: C.text1, fontSize: 20, fontWeight: '800', marginTop: 2 }}>{selectedDebtor?.name}</Text>
                 </View>
                 <TouchableOpacity 
-                  onPress={() => setDetailModalVisible(false)} 
+                  onPress={closeDebtorStatement} 
                 accessibilityRole="button"
                 accessibilityLabel="Close debtor statement"
                 hitSlop={10}
