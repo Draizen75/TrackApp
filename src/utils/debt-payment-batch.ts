@@ -32,7 +32,9 @@ export function allocateTargetedDebtPayment(
   return payments;
 }
 
-export type TargetedDebtPaymentRecord = TargetedDebtPayment & {
+export type TargetedDebtPaymentRecord = {
+  targetDebtId: number | null;
+  amount: number;
   fee: number;
 };
 
