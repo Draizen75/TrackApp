@@ -918,19 +918,58 @@ const extractStoredDateKey = (value?: string | null) => {
   return getLocalDateKey(parsed);
 };
 
-function getDailyTransactionMetrics(transactions: Transaction[]) {
-  const metrics = new Map<string, { grossProfit: number; immediateEarnings: number; txCount: number }>();
+type DashboardTransactionAggregate = {
+  daily: Map<string, { grossProfit: number; immediateEarnings: number; txCount: number }>;
+  grossProfit: number;
+  immediateEarnings: number;
+  todayTransactionsCount: number;
+  debtAddedToday: number;
+  debtCollectedToday: number;
+  orphanPayments: number;
+};
+
+function aggregateDashboardTransactions(
+  transactions: Transaction[],
+  todayDateKey: string,
+): DashboardTransactionAggregate {
+  const daily = new Map<string, { grossProfit: number; immediateEarnings: number; txCount: number }>();
+  const aggregate: DashboardTransactionAggregate = {
+    daily,
+    grossProfit: 0,
+    immediateEarnings: 0,
+    todayTransactionsCount: 0,
+    debtAddedToday: 0,
+    debtCollectedToday: 0,
+    orphanPayments: 0,
+  };
+
   for (const tx of transactions) {
+    const fee = Number(tx.fee) || 0;
+    const amount = Number(tx.amount) || 0;
     const dateKey = extractStoredDateKey(tx.created_at);
-    const existing = metrics.get(dateKey) || { grossProfit: 0, immediateEarnings: 0, txCount: 0 };
-    existing.grossProfit += Number(tx.fee) || 0;
-    if (tx.is_debt !== 1 && tx.type !== 'DEBT_PAYMENT') {
-      existing.immediateEarnings += Number(tx.fee) || 0;
+    const isImmediateEarning = tx.is_debt !== 1 && tx.type !== 'DEBT_PAYMENT';
+    const day = daily.get(dateKey) || { grossProfit: 0, immediateEarnings: 0, txCount: 0 };
+
+    aggregate.grossProfit += fee;
+    day.grossProfit += fee;
+    day.txCount += 1;
+    if (isImmediateEarning) {
+      aggregate.immediateEarnings += fee;
+      day.immediateEarnings += fee;
     }
-    existing.txCount += 1;
-    metrics.set(dateKey, existing);
+    if (dateKey === todayDateKey) {
+      aggregate.todayTransactionsCount += 1;
+      if (tx.is_debt === 1) {
+        aggregate.debtAddedToday += amount + (tx.deduct_fee === 1 ? 0 : fee);
+      }
+      if (tx.type === 'DEBT_PAYMENT') aggregate.debtCollectedToday += amount;
+    }
+    if (tx.type === 'DEBT_PAYMENT' && tx.customer_id == null) aggregate.orphanPayments += 1;
+
+    daily.set(dateKey, day);
   }
-  return metrics;
+
+  return aggregate;
 }
 
 export function calculateCollectedDebtEarningsByDate(transactions: Transaction[]) {
@@ -1228,20 +1267,18 @@ const getDashboardMetrics = (
 ) => {
   const transactions = (db.transactions || []) as Transaction[];
   const walletsMap = db.wallets || {};
-  const dailyTransactionMetrics = getDailyTransactionMetrics(transactions);
+  const todayStr = getLocalDateKey();
+  const transactionAggregate = aggregateDashboardTransactions(transactions, todayStr);
+  const dailyTransactionMetrics = transactionAggregate.daily;
 
-  const grossProfit = transactions.reduce((sum: number, tx: any) => sum + (Number(tx.fee) || 0), 0);
+  const grossProfit = transactionAggregate.grossProfit;
   const debtAnalysis = sharedDebtAnalysis || analyzeDebtLedger(transactions);
   const debtAllocation = debtAnalysis.allocation;
-  const immediateEarnings = transactions.reduce((sum: number, tx: any) => {
-    if (tx.is_debt === 1 || tx.type === 'DEBT_PAYMENT') return sum;
-    return sum + (Number(tx.fee) || 0);
-  }, 0);
+  const immediateEarnings = transactionAggregate.immediateEarnings;
   const earningsPaid = immediateEarnings + debtAllocation.contractualEarningsPaid + debtAllocation.extraProfitPaid;
   const netProfit = earningsPaid;
   const totalDebt = debtAllocation.pendingPrincipal + debtAllocation.pendingEarnings;
 
-  const todayStr = getLocalDateKey();
   const collectedDebtEarnings = debtAnalysis.collectedEarningsByDate;
 
   const wallets = Object.entries(walletsMap).map(([channel, balance]) => ({
@@ -1249,16 +1286,16 @@ const getDashboardMetrics = (
     balance: Number(balance) || 0
   }));
 
+  const customerNamesById = new Map<number, string>(
+    (db.customers || []).map((customer: any) => [Number(customer.id), String(customer.name || '')])
+  );
   const recentTransactions = [...transactions]
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime() || b.id - a.id)
     .slice(0, 10)
-    .map(tx => {
-      const cust = db.customers.find((c: any) => c.id === tx.customer_id);
-      return {
-        ...tx,
-        customer_name: cust ? cust.name : null
-      };
-    });
+    .map(tx => ({
+      ...tx,
+      customer_name: tx.customer_id == null ? null : customerNamesById.get(tx.customer_id) || null,
+    }));
 
   // Daily collected earnings and recorded fees for the selected range.
   const dailyProfits: DailyProfitItem[] = [];
@@ -1299,27 +1336,15 @@ const getDashboardMetrics = (
     month: monthSummary,
   };
 
-  const todayTransactionsCount = transactions.filter((tx: any) => extractStoredDateKey(tx.created_at) === todayStr).length;
-  const debtAddedToday = transactions.reduce((sum: number, tx: any) => {
-    if (extractStoredDateKey(tx.created_at) === todayStr && tx.is_debt === 1) {
-      const fee = tx.deduct_fee === 1 ? 0 : (Number(tx.fee) || 0);
-      return sum + (Number(tx.amount) || 0) + fee;
-    }
-    return sum;
-  }, 0);
-  const debtCollectedToday = transactions.reduce((sum: number, tx: any) => {
-    if (extractStoredDateKey(tx.created_at) === todayStr && tx.type === 'DEBT_PAYMENT') {
-      return sum + (Number(tx.amount) || 0);
-    }
-    return sum;
-  }, 0);
+  const todayTransactionsCount = transactionAggregate.todayTransactionsCount;
+  const debtAddedToday = transactionAggregate.debtAddedToday;
+  const debtCollectedToday = transactionAggregate.debtCollectedToday;
 
   const debtorsMap = new Map<number, any>();
   for (const [customerId, summary] of debtAnalysis.customers.entries()) {
-    const customer = db.customers.find((c: any) => c.id === customerId);
     debtorsMap.set(customerId, {
       id: customerId,
-      name: customer?.name || 'Unknown',
+      name: customerNamesById.get(customerId) || 'Unknown',
       balance: summary.balance,
       oldest_debt_date: hasPositiveCurrency(summary.balance) ? summary.oldestUnpaidDebtDate : null,
     });
@@ -1337,12 +1362,7 @@ const getDashboardMetrics = (
     }
   });
 
-  let orphanPayments = 0;
-  transactions.forEach((tx: any) => {
-    if (tx.type === 'DEBT_PAYMENT' && !tx.customer_id) {
-      orphanPayments += 1;
-    }
-  });
+  const orphanPayments = transactionAggregate.orphanPayments;
   if (orphanPayments > 0) {
     healthChecks.push({
       kind: 'orphan_payment',
