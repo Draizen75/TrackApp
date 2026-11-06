@@ -29,6 +29,7 @@ import { Alert, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } fro
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ledgerColors as C, ledgerRadius, ledgerTypography, ledgerSpacing, ledgerElevation } from '@/theme/ledger';
 import { LedgerEmptyState, LedgerErrorState, LedgerLoadingState } from '@/components/ledger-state';
+import { LedgerMetricCard } from '@/components/ledger-metric-card';
 
 // ─── Obsidian & Gold Design ────────────────────────────────────────────────────
 export default function DashboardScreen() {
@@ -264,18 +265,14 @@ export default function DashboardScreen() {
               { icon: <Coins size={13} color={C.warning} />, label: 'Pending Earnings', value: data.pendingEarnings, color: C.warning },
               { icon: <Check size={13} color={C.success} />, label: 'Principal Paid', value: data.principalPaid, color: C.success },
               { icon: <AlertTriangle size={13} color={C.danger} />, label: 'Debt Outstanding', value: data.totalDebt, color: C.danger },
-            ].map((item, i) => (
-              <View key={i} style={{ width: '47%', alignItems: 'flex-start', backgroundColor: 'rgba(8,9,15,0.42)', borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', padding: 10 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 }}>
-                  {item.icon}
-                  <Text style={{ color: C.text3, fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: '700' }}>
-                    {item.label}
-                  </Text>
-                </View>
-                <Text style={{ color: item.color, fontSize: 15, fontWeight: '800', fontVariant: ['tabular-nums'] }}>
-                  ₱{item.value.toLocaleString('en-US', { maximumFractionDigits: 0 })}
-                </Text>
-              </View>
+            ].map((item) => (
+              <LedgerMetricCard
+                key={item.label}
+                icon={item.icon}
+                label={item.label}
+                value={item.value}
+                color={item.color}
+              />
             ))}
           </View>
         </LinearGradient>
