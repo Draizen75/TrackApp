@@ -1,5 +1,5 @@
 import { migrateDbIfNeeded } from '@/db/db';
-import { allocateTargetedDebtPayment } from '@/utils/debt-payment-batch';
+import { buildTargetedDebtPaymentRecords } from '@/utils/debt-payment-batch';
 import {
   useInfiniteQuery,
   useMutation,
@@ -1909,17 +1909,14 @@ export function useWebDbQueries() {
         if (exceedsCurrencyAmount(amount, outstanding)) {
           throw new Error(`Debt payment cannot exceed the outstanding balance of ${outstanding.toFixed(2)}.`);
         }
-        const paymentPlan = selectedDebts.length
-          ? allocateTargetedDebtPayment(selectedDebts, amount)
-          : [{ targetDebtId: null, amount }];
-        const rows = paymentPlan.length ? paymentPlan : [{ targetDebtId: selectedDebts[0]?.id ?? null, amount: 0 }];
+        const rows = buildTargetedDebtPaymentRecords(selectedDebts, amount, extraProfit);
         const createdAt = new Date().toISOString();
-        rows.forEach((payment, index) => {
+        rows.forEach((payment) => {
           const newTx = {
             id: getNextWebId(db.transactions),
             type: 'DEBT_PAYMENT' as const,
             amount: roundCurrency(payment.amount),
-            fee: index === 0 ? extraProfit : 0,
+            fee: payment.fee,
             channel,
             customer_id,
             is_debt: 0,
@@ -2899,14 +2896,11 @@ export function useDbQueries() {
           if (exceedsCurrencyAmount(amount, outstanding)) {
             throw new Error(`Debt payment cannot exceed the outstanding balance of ${outstanding.toFixed(2)}.`);
           }
-          const paymentPlan = selectedDebts.length
-            ? allocateTargetedDebtPayment(selectedDebts, amount)
-            : [{ targetDebtId: null, amount }];
-          const rows = paymentPlan.length ? paymentPlan : [{ targetDebtId: selectedDebts[0]?.id ?? null, amount: 0 }];
-          for (const [index, payment] of rows.entries()) {
+          const rows = buildTargetedDebtPaymentRecords(selectedDebts, amount, extraProfit);
+          for (const payment of rows) {
             await txn.runAsync(
               "INSERT INTO transactions (type, amount, fee, channel, customer_id, is_debt, target_debt_id, created_at) VALUES ('DEBT_PAYMENT', ?, ?, ?, ?, 0, ?, ?)",
-              [roundCurrency(payment.amount), index === 0 ? extraProfit : 0, channel, customer_id, payment.targetDebtId, createdAt]
+              [roundCurrency(payment.amount), payment.fee, channel, customer_id, payment.targetDebtId, createdAt]
             );
           }
         });
