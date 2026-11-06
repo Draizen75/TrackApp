@@ -870,7 +870,7 @@ export default function HistoryScreen() {
               </View>
             );
           })()}
-        </SafeAreaView></SafeAreaView>
+        </SafeAreaView>
       </Modal>
 
       <Modal
