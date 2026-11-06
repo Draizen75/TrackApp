@@ -27,7 +27,8 @@ import {
 import { useMemo, useState } from 'react';
 import { Alert, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ledgerColors as C, ledgerRadius, ledgerTypography } from '@/theme/ledger';
+import { ledgerColors as C, ledgerRadius, ledgerTypography, ledgerSpacing, ledgerElevation } from '@/theme/ledger';
+import { LedgerEmptyState, LedgerErrorState, LedgerLoadingState } from '@/components/ledger-state';
 
 // ─── Obsidian & Gold Design ────────────────────────────────────────────────────
 export default function DashboardScreen() {
@@ -110,18 +111,13 @@ export default function DashboardScreen() {
 
   if (isLoading && !data) {
     return (
-      <View style={{ flex: 1, backgroundColor: C.bg, justifyContent: 'center', alignItems: 'center' }}>
-        <Text style={{ color: C.text3, fontSize: 14 }}>Loading ledger…</Text>
-      </View>
+      <LedgerLoadingState label="Loading your dashboard…" />
     );
   }
   if (isError && !data) {
     return (
-      <View style={{ flex: 1, backgroundColor: C.bg, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
-        <Text style={{ color: C.text1, fontSize: 15, fontWeight: '700', textAlign: 'center' }}>Could not load your dashboard.</Text>
-        <TouchableOpacity onPress={() => refetch()} accessibilityRole="button" accessibilityLabel="Retry loading dashboard" style={{ marginTop: 16, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 12, backgroundColor: C.accent }}>
-          <Text style={{ color: C.bg, fontWeight: '800' }}>Try again</Text>
-        </TouchableOpacity>
+      <View style={{ flex: 1, backgroundColor: C.bg, justifyContent: 'center', padding: ledgerSpacing.lg }}>
+        <LedgerErrorState title="Dashboard unavailable" description="We couldn't load your ledger summary. Your saved transactions are not affected." onRetry={() => { void refetch(); }} />
       </View>
     );
   }
@@ -235,11 +231,11 @@ export default function DashboardScreen() {
             padding: 20,
             borderWidth: 1,
             borderColor: C.accent,
-            boxShadow: '0 6px 24px rgba(255,176,32,0.12)',
+            ...ledgerElevation.accent,
             marginBottom: 16,
           }}
         >
-          <View style={{ alignItems: 'center', marginBottom: 18 }}>
+          <View style={{ alignItems: 'flex-start', marginBottom: 18 }}>
             <Text style={{ color: C.text2, fontSize: 10, letterSpacing: 1.8, textTransform: 'uppercase', fontWeight: '700', marginBottom: 4, textAlign: 'center' }}>
               Earnings Collected
             </Text>
@@ -249,11 +245,11 @@ export default function DashboardScreen() {
               letterSpacing: -1.2,
               color: data.earningsPaid >= 0 ? C.accent : C.danger,
               marginBottom: 2,
-              textAlign: 'center',
+              textAlign: 'left',
             }}>
               ₱{data.netProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </Text>
-            <Text style={{ color: C.text2, fontSize: 11, textAlign: 'center' }}>
+            <Text style={{ color: C.text2, fontSize: 11, textAlign: 'left' }}>
               All-time fees and interest received
             </Text>
           </View>
@@ -269,7 +265,7 @@ export default function DashboardScreen() {
               { icon: <Check size={13} color={C.success} />, label: 'Principal Paid', value: data.principalPaid, color: C.success },
               { icon: <AlertTriangle size={13} color={C.danger} />, label: 'Debt Outstanding', value: data.totalDebt, color: C.danger },
             ].map((item, i) => (
-              <View key={i} style={{ width: '47%', alignItems: 'flex-start' }}>
+              <View key={i} style={{ width: '47%', alignItems: 'flex-start', backgroundColor: 'rgba(8,9,15,0.42)', borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', padding: 10 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 }}>
                   {item.icon}
                   <Text style={{ color: C.text3, fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: '700' }}>
@@ -297,7 +293,9 @@ export default function DashboardScreen() {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={{ gap: 10, paddingRight: 8 }}
           >
-            {data.wallets.map((wallet) => {
+            {data.wallets.length === 0 ? (
+              <LedgerEmptyState title="No wallets configured" description="Add a wallet in Settings to start tracking your counter float." />
+            ) : data.wallets.map((wallet) => {
               const theme = getWalletTheme(wallet.channel);
               return (
                 <LinearGradient
@@ -611,9 +609,7 @@ export default function DashboardScreen() {
           </View>
 
           {recentTransactions.length === 0 ? (
-            <View style={{ paddingVertical: 28, alignItems: 'center' }}>
-              <Text style={{ color: C.text3, fontSize: 13 }}>No transactions have been recorded yet.</Text>
-            </View>
+            <LedgerEmptyState title="No transactions yet" description="Your latest cash-ins, cash-outs, and debt payments will appear here." tone="accent" />
           ) : (
             recentTransactions.map((tx, idx) => {
               const badge = getTxTypeBadge(tx.type);
