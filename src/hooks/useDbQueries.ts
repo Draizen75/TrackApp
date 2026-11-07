@@ -227,6 +227,7 @@ export interface DailyProfitItem {
 export interface EarningsTimeframeSummary {
   grossProfit: number;
   netProfit: number;
+  pendingEarnings: number;
   txCount: number;
 }
 
@@ -1064,9 +1065,10 @@ export function summarizeEarningsPeriod(
     if (day.dateKey < startKey || day.dateKey >= endKey) return summary;
     summary.grossProfit += day.grossProfit;
     summary.netProfit += day.netProfit;
+    summary.pendingEarnings += day.pendingEarnings || 0;
     summary.txCount += day.txCount;
     return summary;
-  }, { grossProfit: 0, netProfit: 0, txCount: 0 });
+  }, { grossProfit: 0, netProfit: 0, pendingEarnings: 0, txCount: 0 });
 }
 
 const hydrateWebDb = (parsed: any) => ({
