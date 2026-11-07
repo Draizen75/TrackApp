@@ -537,6 +537,15 @@ export default function DashboardScreen() {
                   </Text>
                 </View>
               </View>
+              <View style={{ marginTop: 8, backgroundColor: C.surface, padding: 10, borderRadius: 12, borderWidth: 1, borderColor: C.border }}>
+                <Text style={{ color: C.text3, fontSize: 9, textTransform: 'uppercase', fontWeight: '700' }}>Pending Earnings</Text>
+                <Text style={{ color: C.warning, fontSize: 14, fontWeight: '800', marginTop: 2 }}>
+                  ₱{(selectedDayInfo.pendingEarnings || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                </Text>
+                <Text style={{ color: C.text3, fontSize: 10, marginTop: 3 }}>
+                  Unpaid fees remaining from debts recorded on this day
+                </Text>
+              </View>
 
               <View style={{ marginTop: 14, borderTopWidth: 1, borderTopColor: C.border, paddingTop: 12 }}>
                 <TouchableOpacity
