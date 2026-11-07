@@ -68,7 +68,6 @@ export default function EntryScreen() {
 
   const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(null);
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
-  const [newCustomerPhone, setNewCustomerPhone] = useState('');
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [isFeeOverride, setIsFeeOverride] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
@@ -189,7 +188,6 @@ export default function EntryScreen() {
 
   const selectCustomer = (id: number, name: string) => {
     setSelectedCustomerId(id);
-    setNewCustomerPhone('');
     setValue('customerName', name);
     setCustomerSearchQuery(name);
     setShowCustomerDropdown(false);
@@ -213,7 +211,6 @@ export default function EntryScreen() {
     if (!enabled) {
       setValue('customerName', '');
       setSelectedCustomerId(null);
-      setNewCustomerPhone('');
       setCustomerSearchQuery('');
       setShowCustomerDropdown(false);
     }
@@ -238,7 +235,7 @@ export default function EntryScreen() {
           if (process.env.EXPO_OS !== 'web') {
             await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           }
-          finalCustomerId = await addCustomerMutation.mutateAsync({ name: trimmedName, phone: newCustomerPhone.trim() || undefined });
+          finalCustomerId = await addCustomerMutation.mutateAsync({ name: trimmedName });
           await refetchCustomers();
         }
       }
@@ -278,7 +275,6 @@ export default function EntryScreen() {
     });
     setIsFeeOverride(false);
     setSelectedCustomerId(null);
-    setNewCustomerPhone('');
     setCustomerSearchQuery('');
     setShowCustomerDropdown(false);
   };
@@ -676,7 +672,6 @@ export default function EntryScreen() {
                           setCustomerSearchQuery(txt);
                           setShowCustomerDropdown(true);
                           setSelectedCustomerId(null);
-                          setNewCustomerPhone('');
                         }}
                         value={value}
                         onFocus={() => {
@@ -722,22 +717,6 @@ export default function EntryScreen() {
                         </Text>
                       )}
                     </ScrollView>
-                  </View>
-                )}
-                {isNewCustomer && (
-                  <View style={{ marginTop: 8 }}>
-                    <Text style={{ color: C.text3, fontSize: 11, marginBottom: 6 }}>
-                      This customer will be added when you log the debt.
-                    </Text>
-                    <TextInput
-                      accessibilityLabel="New debtor phone number"
-                      keyboardType="phone-pad"
-                      value={newCustomerPhone}
-                      onChangeText={setNewCustomerPhone}
-                      placeholder="Phone number (optional)"
-                      placeholderTextColor={C.text3}
-                      style={{ color: C.text1, fontSize: 13, backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10 }}
-                    />
                   </View>
                 )}
               </View>
