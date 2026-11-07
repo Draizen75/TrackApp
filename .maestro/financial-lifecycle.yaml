@@ -44,7 +44,7 @@ appId: com.draizen.TrackApp
 # Use Maestro's supported point selector because native tab labels/test IDs
 # are not consistently exposed in the hosted Android accessibility tree.
 - tapOn:
-    point: "50%, 91%"
+    id: "tab-debtors"
 - extendedWaitUntil:
     visible: "Maestro QA Debt"
     timeout: 20000
@@ -76,7 +76,7 @@ appId: com.draizen.TrackApp
 # Use Maestro's supported point selector because native tab labels/test IDs
 # are not consistently exposed in the hosted Android accessibility tree.
 - tapOn:
-    point: "50%, 91%"
+    id: "tab-debtors"
 - extendedWaitUntil:
     visible: "Maestro QA Debt"
     timeout: 15000
