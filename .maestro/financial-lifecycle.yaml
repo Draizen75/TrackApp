@@ -54,13 +54,17 @@ appId: com.draizen.TrackApp
     visible: "Settle Ledger"
     timeout: 10000
 - tapOn:
-    text: "Settlement total received"
+    id: "settlement-total-received"
 - eraseText: 20
 - inputText: "40"
 - hideKeyboard
 - assertVisible: "Principal applied"
 - assertVisible: "₱40.00"
 - tapOn: "Confirm Payment"
+- extendedWaitUntil:
+    visible: "Maestro QA Debt"
+    timeout: 15000
+- tapOn: "Maestro QA Debt"
 - extendedWaitUntil:
     visible: "Remaining ₱60.00"
     timeout: 15000
@@ -95,7 +99,7 @@ appId: com.draizen.TrackApp
 - eraseText: 20
 - inputText: "65"
 - tapOn:
-    text: "Settlement extra profit"
+    id: "settlement-extra-profit"
 - eraseText: 20
 - inputText: "5"
 - hideKeyboard
