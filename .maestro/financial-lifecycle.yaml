@@ -23,6 +23,13 @@ appId: com.draizen.TrackApp
 - inputText: "0"
 - hideKeyboard
 - tapOn: "Record as customer debt"
+# The customer field is below the recent-debt chips on smaller screens.
+# Scroll the main form until the input is actually on-screen before tapping.
+- scrollUntilVisible:
+    element:
+      id: "debtor-customer-name"
+    direction: DOWN
+    timeout: 10000
 - tapOn:
     id: "debtor-customer-name"
 - inputText: "Maestro QA Debt"
