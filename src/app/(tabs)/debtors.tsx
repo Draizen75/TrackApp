@@ -1298,6 +1298,7 @@ export default function DebtorsScreen() {
 
               <Text style={{ color: C.text3, fontSize: 11, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 8 }}>Total received</Text>
               <TextInput
+                testID="settlement-total-received"
                 accessibilityLabel="Settlement total received"
                 style={{
                   backgroundColor: C.bg,
@@ -1321,6 +1322,7 @@ export default function DebtorsScreen() {
 
               <Text style={{ color: C.text3, fontSize: 11, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 8 }}>Extra profit / interest</Text>
               <TextInput
+                testID="settlement-extra-profit"
                 accessibilityLabel="Settlement extra profit"
                 style={{
                   backgroundColor: C.bg,
