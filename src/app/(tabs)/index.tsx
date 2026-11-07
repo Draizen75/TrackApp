@@ -263,6 +263,7 @@ export default function DashboardScreen() {
             {[
               { icon: <TrendingUp size={13} color={C.text2} />, label: 'Fees Recorded', value: data.grossProfit, color: C.text1 },
               { icon: <Check size={13} color={C.success} />, label: 'Principal Paid', value: data.principalPaid, color: C.success },
+              { icon: <Coins size={13} color={C.warning} />, label: 'Pending Earnings', value: data.pendingEarnings, color: C.warning },
               { icon: <AlertTriangle size={13} color={C.danger} />, label: 'Debt Outstanding', value: data.totalDebt, color: C.danger },
             ].map((item) => (
               <LedgerMetricCard
