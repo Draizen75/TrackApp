@@ -144,9 +144,11 @@ appId: com.draizen.TrackApp
 # Fully settled customers are intentionally moved out of Active Debts and
 # shown under the collapsed Settled Accounts & History section.
 - extendedWaitUntil:
-    visible: "Settled Accounts & History (1)"
+    visible:
+      id: "settled-accounts-toggle"
     timeout: 15000
-- tapOn: "Settled Accounts & History (1)"
+- tapOn:
+    id: "settled-accounts-toggle"
 - extendedWaitUntil:
     visible: "Maestro QA Debt"
     timeout: 10000
