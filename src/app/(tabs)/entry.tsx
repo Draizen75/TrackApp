@@ -721,20 +721,6 @@ export default function EntryScreen() {
                   </View>
                 )}
                 {isNewCustomer && (
-                        <TouchableOpacity
-                          onPress={() => {
-                            setShowCustomerDropdown(false);
-                          }}
-                          style={{ padding: 12, flexDirection: 'row', alignItems: 'center', gap: 8 }}
-                        >
-                          <UserPlus size={14} color={C.accent} />
-                          <Text style={{ color: C.accent, fontSize: 12, fontWeight: '700' }}>Use as a new customer</Text>
-                        </TouchableOpacity>
-                      )}
-                    </ScrollView>
-                  </View>
-                )}
-                {isNewCustomer && (
                   <View style={{ marginTop: 8 }}>
                     <Text style={{ color: C.text3, fontSize: 11, marginBottom: 6 }}>
                       This customer will be added when you log the debt.
