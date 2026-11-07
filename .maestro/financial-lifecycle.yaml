@@ -28,7 +28,7 @@ appId: com.draizen.TrackApp
 # Scroll the main form until the input is actually on-screen before tapping.
 - scrollUntilVisible:
     element:
-      text: "Search or enter debtor name..."
+      id: "debtor-customer-name"
     direction: DOWN
     timeout: 10000
 - tapOn:
