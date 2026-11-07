@@ -12,7 +12,12 @@ appId: com.draizen.TrackApp
     visible: "Earnings Collected"
     timeout: 30000
 
-- tapOn: "Quick Entry"
+- tapOn:
+    id: "tab-quick-entry"
+- extendedWaitUntil:
+    visible:
+      id: "base-transaction-amount"
+    timeout: 15000
 - tapOn:
     id: "base-transaction-amount"
 - inputText: "100"
@@ -42,9 +47,11 @@ appId: com.draizen.TrackApp
 # completed and were persisted.
 # Wait for the entry screen and keyboard dismissal before navigating.
 - extendedWaitUntil:
-    visible: "Quick Entry"
-    timeout: 10000
-- tapOn: "Debtors"
+    visible:
+      id: "base-transaction-amount"
+    timeout: 15000
+- tapOn:
+    id: "tab-debtors"
 - extendedWaitUntil:
     visible: "Maestro QA Debt"
     timeout: 20000
@@ -77,9 +84,10 @@ appId: com.draizen.TrackApp
     text: "Wait"
     optional: true
 - extendedWaitUntil:
-    visible: "Dashboard"
+    visible: "Earnings Collected"
     timeout: 15000
-- tapOn: "Debtors"
+- tapOn:
+    id: "tab-debtors"
 - extendedWaitUntil:
     visible: "Maestro QA Debt"
     timeout: 15000
