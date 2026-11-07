@@ -40,11 +40,11 @@ appId: com.draizen.TrackApp
 # Verify the durable result rather than relying on a short-lived animated toast.
 # A visible debtor record confirms that both customer creation and debt logging
 # completed and were persisted.
-# The center item in the five-tab bottom bar is Debtors.
-# Use Maestro's supported point selector because native tab labels/test IDs
-# are not consistently exposed in the hosted Android accessibility tree.
-- tapOn:
-    id: "tab-debtors"
+# Wait for the entry screen and keyboard dismissal before navigating.
+- extendedWaitUntil:
+    visible: "Quick Entry"
+    timeout: 10000
+- tapOn: "Debtors"
 - extendedWaitUntil:
     visible: "Maestro QA Debt"
     timeout: 20000
@@ -72,11 +72,10 @@ appId: com.draizen.TrackApp
 - tapOn:
     text: "Wait"
     optional: true
-# The center item in the five-tab bottom bar is Debtors.
-# Use Maestro's supported point selector because native tab labels/test IDs
-# are not consistently exposed in the hosted Android accessibility tree.
-- tapOn:
-    id: "tab-debtors"
+- extendedWaitUntil:
+    visible: "Dashboard"
+    timeout: 15000
+- tapOn: "Debtors"
 - extendedWaitUntil:
     visible: "Maestro QA Debt"
     timeout: 15000
