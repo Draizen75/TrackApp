@@ -14,17 +14,17 @@ appId: com.draizen.TrackApp
 
 - tapOn: "Quick Entry"
 - tapOn:
-    id: "Base transaction amount"
+    id: "base-transaction-amount"
 - inputText: "100"
 - tapOn:
-    id: "Edit service fee"
+    id: "edit-service-fee"
 - tapOn:
-    id: "Service fee"
+    id: "service-fee"
 - inputText: "0"
 - hideKeyboard
 - tapOn: "Record as customer debt"
 - tapOn:
-    id: "Debtor customer name"
+    id: "debtor-customer-name"
 - inputText: "Maestro QA Debt"
 - hideKeyboard
 - tapOn: "LOG TRANSACTION"
@@ -42,7 +42,7 @@ appId: com.draizen.TrackApp
     visible: "Settle Ledger"
     timeout: 10000
 - tapOn:
-    id: "Settlement total received"
+    id: "settlement-total-received"
 - eraseText: 20
 - inputText: "40"
 - hideKeyboard
@@ -76,11 +76,11 @@ appId: com.draizen.TrackApp
     visible: "Settle Ledger"
     timeout: 10000
 - tapOn:
-    id: "Settlement total received"
+    id: "settlement-total-received"
 - eraseText: 20
 - inputText: "65"
 - tapOn:
-    id: "Settlement extra profit"
+    id: "settlement-extra-profit"
 - eraseText: 20
 - inputText: "5"
 - hideKeyboard
