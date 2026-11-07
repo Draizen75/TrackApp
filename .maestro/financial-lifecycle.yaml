@@ -3,6 +3,9 @@ appId: com.draizen.TrackApp
 # End-to-end financial lifecycle on a clean Android install:
 # create debtor + debt, record a partial principal payment, then verify
 # the remaining balance survives an app process restart.
+# Start from a clean database, then fund the test wallet through the
+# same Settings UI a real user uses. Debt-entry transactions that disburse
+# digital float must not bypass the app's insufficient-balance guard.
 - launchApp:
     clearState: true
 - tapOn:
@@ -11,8 +14,29 @@ appId: com.draizen.TrackApp
 - extendedWaitUntil:
     visible: "Earnings Collected"
     timeout: 30000
+- tapOn:
+    id: "tab-settings"
+- scrollUntilVisible:
+    element:
+      id: "wallet-balance-GCASH"
+    direction: DOWN
+    timeout: 15000
+- tapOn:
+    id: "wallet-balance-GCASH"
+- tapOn:
+    id: "wallet-balance-input"
+- eraseText: 20
+- inputText: "1000"
+- hideKeyboard
+- tapOn:
+    id: "confirm-wallet-balance"
+- extendedWaitUntil:
+    visible: "Wallets"
+    timeout: 10000
 
-- tapOn: "Quick Entry"
+# Begin the debt lifecycle with the funded, clean test ledger.
+- tapOn:
+    id: "tab-quick-entry"
 - extendedWaitUntil:
     visible:
       id: "base-transaction-amount"
