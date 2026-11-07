@@ -24,6 +24,12 @@ if [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" != "1" ]
   exit 1
 fi
 
+# The hosted Pixel image intermittently reports a background Pixel Launcher
+# ANR while TrackApp is in the foreground. Android displays that background
+# ANR as a system modal over TrackApp, blocking every Maestro interaction.
+# Suppress background-app ANR dialogs for this isolated test emulator.
+adb shell settings put global anr_show_background 0 || true
+
 # Capture Android logs independently of Maestro's output directory. The
 # background capture also preserves startup exceptions and native crashes.
 adb logcat -c || true
