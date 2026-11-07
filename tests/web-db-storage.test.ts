@@ -1,8 +1,18 @@
 let mockQueryOptions: Record<string, unknown> | undefined;
 let mockMutationOptions: Record<string, unknown> | undefined;
+let mockQueryCache = new Map<string, unknown>();
 
 jest.mock('@tanstack/react-query', () => ({
-  useQueryClient: () => ({ invalidateQueries: jest.fn() }),
+  useQueryClient: () => ({
+    invalidateQueries: jest.fn(),
+    fetchQuery: async (options: { queryKey: unknown[]; queryFn: () => Promise<unknown> }) => {
+      const key = JSON.stringify(options.queryKey);
+      if (mockQueryCache.has(key)) return mockQueryCache.get(key);
+      const result = await options.queryFn();
+      mockQueryCache.set(key, result);
+      return result;
+    },
+  }),
   useQuery: (options: Record<string, unknown>) => {
     mockQueryOptions = options;
     return options;
@@ -80,6 +90,7 @@ function createFakeIndexedDb() {
 }
 
 describe('web ledger IndexedDB migration', () => {
+  beforeEach(() => mockQueryCache.clear());
   it('migrates the existing localStorage ledger and persists later mutations asynchronously', async () => {
     const now = new Date();
     const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
