@@ -39,7 +39,7 @@ appId: com.draizen.TrackApp
 # A visible debtor record confirms that both customer creation and debt logging
 # completed and were persisted.
 - tapOn:
-    id: "tab-debtors"
+    accessibilityText: "Debtors"
 - extendedWaitUntil:
     visible: "Maestro QA Debt"
     timeout: 20000
@@ -68,7 +68,7 @@ appId: com.draizen.TrackApp
     text: "Wait"
     optional: true
 - tapOn:
-    id: "tab-debtors"
+    accessibilityText: "Debtors"
 - extendedWaitUntil:
     visible: "Maestro QA Debt"
     timeout: 15000
