@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Modal, KeyboardAvoidingView, FlatList, SectionList } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { calculateDebtPaymentAllocation, getDebtOutstandingById, getDebtorBalanceStatus, isSettlementBreakdownBalanced, splitSettlementReceived, useDbQueries, Debtor, Transaction, cleanErrorMessage } from '@/hooks/useDbQueries';
+import { calculateDebtPaymentAllocation, getDebtOutstandingById, getDebtorBalanceStatus, isSettlementBreakdownBalanced, splitSettlementReceived, calculateSettlementTotalForProfit, useDbQueries, Debtor, Transaction, cleanErrorMessage } from '@/hooks/useDbQueries';
 import { ToastNotice, useToast, type ToastType } from '@/components/toast';
 import { GoldButton } from '@/components/gold-button';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -182,6 +182,22 @@ export default function DebtorsScreen() {
 
     const { suggestedProfit } = splitSettlementReceived(received, getSettlementPrincipalCap());
     setSettleProfit(suggestedProfit > 0 ? suggestedProfit.toFixed(2) : '');
+  };
+
+  const handleSettlementProfitChange = (value: string) => {
+    setSettleProfit(value);
+    if (!selectedDebtor || (value.trim() !== '' && !isValidMoneyInput(value, true))) return;
+
+    const received = Number(settleAmount);
+    if (!Number.isFinite(received) || received < 0) return;
+
+    const profit = value.trim() === '' ? 0 : Number(value);
+    const nextTotal = calculateSettlementTotalForProfit(
+      received,
+      getSettlementPrincipalCap(),
+      profit,
+    );
+    setSettleAmount(nextTotal.toFixed(2));
   };
 
   const handleQuickFullSettle = async (debtor: Debtor) => {
@@ -1341,7 +1357,7 @@ export default function DebtorsScreen() {
                 }}
                 keyboardType="decimal-pad"
                 value={settleProfit}
-                onChangeText={setSettleProfit}
+                onChangeText={handleSettlementProfitChange}
                 placeholder="0.00"
                 placeholderTextColor={C.text3}
                 editable={!settleMutation.isPending}
