@@ -865,6 +865,9 @@ export default function DebtorsScreen() {
             </View>
           ) : (
             <TouchableOpacity
+              testID="settled-accounts-toggle"
+              accessibilityRole="button"
+              accessibilityLabel={`Settled Accounts & History, ${settledDebtors.length} accounts`}
               onPress={() => setShowSettledList(!showSettledList)}
               style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderTopWidth: 1, borderColor: C.border, marginTop: 8, marginBottom: 12, backgroundColor: C.bg }}
             >
