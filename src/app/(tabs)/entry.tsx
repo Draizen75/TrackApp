@@ -4,7 +4,7 @@ import { GoldButton } from '@/components/gold-button';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useLocalSearchParams, useFocusEffect, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { History, Pencil, RotateCcw, Search, UserPlus } from 'lucide-react-native';
+import { History, Pencil, RotateCcw, Search } from 'lucide-react-native';
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { Keyboard, KeyboardAvoidingView, ScrollView, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -664,6 +664,9 @@ export default function EntryScreen() {
                         style={{ flex: 1, color: C.text1, fontSize: 14, fontWeight: '600', height: 40 }}
                         placeholder="Search or enter debtor name..."
                         placeholderTextColor={C.text3}
+                        autoCapitalize="words"
+                        autoCorrect={false}
+                        returnKeyType="done"
                         onChangeText={(txt) => {
                           onChange(txt);
                           setCustomerSearchQuery(txt);
@@ -672,29 +675,52 @@ export default function EntryScreen() {
                           setNewCustomerPhone('');
                         }}
                         value={value}
-                        onFocus={() => setShowCustomerDropdown(true)}
+                        onFocus={() => {
+                          setCustomerSearchQuery(value || '');
+                          setShowCustomerDropdown(true);
+                        }}
                       />
                     )}
                   />
                 </View>
                 {showCustomerDropdown && customerSearchQuery.trim().length > 0 && (
-                  <View style={{ position: 'absolute', top: 64, left: 0, right: 0, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border, borderRadius: 16, maxHeight: 160, overflow: 'hidden', zIndex: 50 }}>
-                    <ScrollView keyboardShouldPersistTaps="always" style={{ flex: 1 }}>
+                  <View
+                    accessibilityLabel="Customer search results"
+                    style={{
+                      marginTop: 8,
+                      backgroundColor: C.surface2,
+                      borderWidth: 1,
+                      borderColor: C.border,
+                      borderRadius: 14,
+                      maxHeight: 180,
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <ScrollView
+                      keyboardShouldPersistTaps="always"
+                      nestedScrollEnabled
+                      style={{ flexGrow: 0 }}
+                    >
                       {filteredCustomers.map((item: any) => (
                         <TouchableOpacity
                           key={item.id}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Select customer ${item.name}`}
                           onPress={() => selectCustomer(item.id, item.name)}
-                          style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderColor: C.border }}
+                          style={{ paddingHorizontal: 16, paddingVertical: 13, borderBottomWidth: 1, borderColor: C.border }}
                         >
-                          <Text style={{ color: C.text2, fontSize: 13, fontWeight: '600' }}>{item.name}</Text>
+                          <Text style={{ color: C.text2, fontSize: 14, fontWeight: '600' }}>{item.name}</Text>
                         </TouchableOpacity>
                       ))}
                       {filteredCustomers.length === 0 && (
-                        <Text style={{ color: C.text3, fontSize: 12, padding: 12 }}>
-                          No existing customer matches.
+                        <Text style={{ color: C.text3, fontSize: 12, lineHeight: 18, padding: 12 }}>
+                          No matching customer. A new customer will be created when you log this debt.
                         </Text>
                       )}
-                      {isNewCustomer && (
+                    </ScrollView>
+                  </View>
+                )}
+                {isNewCustomer && (
                         <TouchableOpacity
                           onPress={() => {
                             setShowCustomerDropdown(false);
