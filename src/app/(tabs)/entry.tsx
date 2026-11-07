@@ -393,6 +393,7 @@ export default function EntryScreen() {
                   name="amount"
                   render={({ field: { onChange, onBlur, value } }) => (
                     <TextInput
+                      testID="base-transaction-amount"
                       accessibilityLabel="Base transaction amount"
                       style={{
                         backgroundColor: C.bg,
@@ -425,6 +426,7 @@ export default function EntryScreen() {
                   </Text>
                   <TouchableOpacity
                     accessibilityRole="button"
+                    testID="edit-service-fee"
                     accessibilityLabel={isFeeOverride ? 'Use suggested service fee' : 'Edit service fee'}
                     onPress={() => setIsFeeOverride(value => !value)}
                     hitSlop={8}
@@ -440,6 +442,7 @@ export default function EntryScreen() {
                   name="fee"
                   render={({ field: { onChange, onBlur, value } }) => (
                     <TextInput
+                      testID="service-fee"
                       accessibilityLabel="Service fee"
                       style={{
                         backgroundColor: C.bg,
@@ -660,6 +663,7 @@ export default function EntryScreen() {
                     name="customerName"
                     render={({ field: { onChange, value } }) => (
                       <TextInput
+                        testID="debtor-customer-name"
                         accessibilityLabel="Debtor customer name"
                         style={{ flex: 1, color: C.text1, fontSize: 14, fontWeight: '600', height: 40 }}
                         placeholder="Search or enter debtor name..."
