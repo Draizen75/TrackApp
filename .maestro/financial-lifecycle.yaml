@@ -14,12 +14,12 @@ appId: com.draizen.TrackApp
 
 - tapOn: "Quick Entry"
 - tapOn:
-    id: "base-transaction-amount"
+    text: "Base transaction amount"
 - inputText: "100"
 - tapOn:
-    id: "edit-service-fee"
+    text: "Edit service fee"
 - tapOn:
-    id: "service-fee"
+    text: "Service fee"
 - inputText: "0"
 - hideKeyboard
 - tapOn: "Record as customer debt"
@@ -27,11 +27,11 @@ appId: com.draizen.TrackApp
 # Scroll the main form until the input is actually on-screen before tapping.
 - scrollUntilVisible:
     element:
-      id: "debtor-customer-name"
+      text: "Search or enter debtor name..."
     direction: DOWN
     timeout: 10000
 - tapOn:
-    id: "debtor-customer-name"
+    text: "Search or enter debtor name..."
 - inputText: "Maestro QA Debt"
 - hideKeyboard
 - tapOn: "LOG TRANSACTION"
@@ -49,7 +49,7 @@ appId: com.draizen.TrackApp
     visible: "Settle Ledger"
     timeout: 10000
 - tapOn:
-    id: "settlement-total-received"
+    text: "Settlement total received"
 - eraseText: 20
 - inputText: "40"
 - hideKeyboard
@@ -83,11 +83,11 @@ appId: com.draizen.TrackApp
     visible: "Settle Ledger"
     timeout: 10000
 - tapOn:
-    id: "settlement-total-received"
+    text: "Settlement total received"
 - eraseText: 20
 - inputText: "65"
 - tapOn:
-    id: "settlement-extra-profit"
+    text: "Settlement extra profit"
 - eraseText: 20
 - inputText: "5"
 - hideKeyboard
