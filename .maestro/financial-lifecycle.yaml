@@ -12,11 +12,9 @@ appId: com.draizen.TrackApp
     visible: "Earnings Collected"
     timeout: 30000
 
-- tapOn:
-    id: "tab-quick-entry"
+- tapOn: "Quick Entry"
 - extendedWaitUntil:
-    visible:
-      id: "base-transaction-amount"
+    visible: "Base Amount (₱)"
     timeout: 15000
 - tapOn:
     id: "base-transaction-amount"
