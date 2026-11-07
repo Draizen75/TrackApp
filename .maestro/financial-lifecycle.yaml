@@ -16,6 +16,11 @@ appId: com.draizen.TrackApp
     timeout: 30000
 - tapOn:
     id: "tab-settings"
+# The hosted emulator may show a Pixel Launcher background ANR over the
+# foreground app after tab navigation. Dismiss it before querying the UI.
+- tapOn:
+    text: "Wait"
+    optional: true
 - scrollUntilVisible:
     element:
       id: "wallet-balance-GCASH"
