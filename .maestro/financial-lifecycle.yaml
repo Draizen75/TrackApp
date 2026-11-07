@@ -14,15 +14,16 @@ appId: com.draizen.TrackApp
 
 - tapOn: "Quick Entry"
 - tapOn:
-    text: "Base transaction amount"
+    id: "base-transaction-amount"
 - inputText: "100"
 - tapOn:
-    text: "Edit service fee"
+    id: "edit-service-fee"
 - tapOn:
-    text: "Service fee"
+    id: "service-fee"
 - inputText: "0"
 - hideKeyboard
-- tapOn: "Record as customer debt"
+- tapOn:
+    id: "record-as-customer-debt"
 # The customer field is below the recent-debt chips on smaller screens.
 # Scroll the main form until the input is actually on-screen before tapping.
 - scrollUntilVisible:
@@ -31,10 +32,11 @@ appId: com.draizen.TrackApp
     direction: DOWN
     timeout: 10000
 - tapOn:
-    text: "Search or enter debtor name..."
+    id: "debtor-customer-name"
 - inputText: "Maestro QA Debt"
 - hideKeyboard
-- tapOn: "LOG TRANSACTION"
+- tapOn:
+    id: "log-transaction"
 # Verify the durable result rather than relying on a short-lived animated toast.
 # A visible debtor record confirms that both customer creation and debt logging
 # completed and were persisted.
