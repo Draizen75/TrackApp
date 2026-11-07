@@ -229,28 +229,30 @@ export default function DashboardScreen() {
           colors={['#282315', '#11141f']}
           style={{
             borderRadius: ledgerRadius.card,
-            padding: 20,
+            paddingHorizontal: 24,
+            paddingVertical: 26,
             borderWidth: 1,
             borderColor: C.accent,
             ...ledgerElevation.accent,
             marginBottom: 16,
           }}
         >
-          <View style={{ alignItems: 'flex-start', marginBottom: 18 }}>
-            <Text style={{ color: C.text2, fontSize: 10, letterSpacing: 1.8, textTransform: 'uppercase', fontWeight: '700', marginBottom: 4, textAlign: 'center' }}>
+          <View style={{ alignItems: 'center', marginBottom: 22, paddingHorizontal: 4 }}>
+            <Text style={{ color: C.text2, fontSize: 12, letterSpacing: 2.1, textTransform: 'uppercase', fontWeight: '800', marginBottom: 8, textAlign: 'center' }}>
               Earnings Collected
             </Text>
             <Text style={{
-              fontSize: ledgerTypography.display,
+              fontSize: Math.max(ledgerTypography.display, 38),
               fontWeight: '900',
-              letterSpacing: -1.2,
+              letterSpacing: -0.8,
               color: data.earningsPaid >= 0 ? C.accent : C.danger,
-              marginBottom: 2,
-              textAlign: 'left',
+              marginBottom: 6,
+              textAlign: 'center',
+              includeFontPadding: false,
             }}>
               ₱{data.netProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </Text>
-            <Text style={{ color: C.text2, fontSize: 11, textAlign: 'left' }}>
+            <Text style={{ color: C.text2, fontSize: 12, textAlign: 'center' }}>
               All-time fees and interest received
             </Text>
           </View>
