@@ -229,28 +229,30 @@ export default function DashboardScreen() {
           colors={['#282315', '#11141f']}
           style={{
             borderRadius: ledgerRadius.card,
-            padding: 20,
+            paddingHorizontal: 24,
+            paddingVertical: 26,
             borderWidth: 1,
             borderColor: C.accent,
             ...ledgerElevation.accent,
             marginBottom: 16,
           }}
         >
-          <View style={{ alignItems: 'flex-start', marginBottom: 18 }}>
-            <Text style={{ color: C.text2, fontSize: 10, letterSpacing: 1.8, textTransform: 'uppercase', fontWeight: '700', marginBottom: 4, textAlign: 'center' }}>
+          <View style={{ alignItems: 'center', marginBottom: 22, paddingHorizontal: 4 }}>
+            <Text style={{ color: C.text2, fontSize: 12, letterSpacing: 2.1, textTransform: 'uppercase', fontWeight: '800', marginBottom: 8, textAlign: 'center' }}>
               Earnings Collected
             </Text>
             <Text style={{
-              fontSize: ledgerTypography.display,
+              fontSize: Math.max(ledgerTypography.display, 38),
               fontWeight: '900',
-              letterSpacing: -1.2,
+              letterSpacing: -0.8,
               color: data.earningsPaid >= 0 ? C.accent : C.danger,
-              marginBottom: 2,
-              textAlign: 'left',
+              marginBottom: 6,
+              textAlign: 'center',
+              includeFontPadding: false,
             }}>
               ₱{data.netProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </Text>
-            <Text style={{ color: C.text2, fontSize: 11, textAlign: 'left' }}>
+            <Text style={{ color: C.text2, fontSize: 12, textAlign: 'center' }}>
               All-time fees and interest received
             </Text>
           </View>
@@ -259,11 +261,11 @@ export default function DashboardScreen() {
           <View style={{ height: 1, backgroundColor: '#ffffff20', marginBottom: 16 }} />
 
           {/* Ledger status */}
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 12, columnGap: 10 }}>
             {[
               { icon: <TrendingUp size={13} color={C.text2} />, label: 'Fees Recorded', value: data.grossProfit, color: C.text1 },
-              { icon: <Coins size={13} color={C.warning} />, label: 'Pending Earnings', value: data.pendingEarnings, color: C.warning },
               { icon: <Check size={13} color={C.success} />, label: 'Principal Paid', value: data.principalPaid, color: C.success },
+              { icon: <Coins size={13} color={C.warning} />, label: 'Pending Earnings', value: data.pendingEarnings, color: C.warning },
               { icon: <AlertTriangle size={13} color={C.danger} />, label: 'Debt Outstanding', value: data.totalDebt, color: C.danger },
             ].map((item) => (
               <LedgerMetricCard
@@ -346,6 +348,9 @@ export default function DashboardScreen() {
                 <Text style={{ color: C.text1, fontSize: 16, fontWeight: '800', marginTop: 2 }}>
                   ₱{(data.earningsSummary?.today?.netProfit ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Text>
+                <Text style={{ color: C.warning, fontSize: 10, fontWeight: '700', marginTop: 2 }}>
+                  ₱{(data.earningsSummary?.today?.pendingEarnings ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} pending fees
+                </Text>
               </View>
               <View style={{ alignItems: 'flex-end' }}>
                 <Text style={{ color: C.accent, fontSize: 11, fontWeight: '700' }}>
@@ -360,6 +365,9 @@ export default function DashboardScreen() {
                 <Text style={{ color: C.text1, fontSize: 16, fontWeight: '800', marginTop: 2 }}>
                   ₱{(data.earningsSummary?.week?.netProfit ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Text>
+                <Text style={{ color: C.warning, fontSize: 10, fontWeight: '700', marginTop: 2 }}>
+                  ₱{(data.earningsSummary?.week?.pendingEarnings ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} pending fees
+                </Text>
               </View>
               <View style={{ alignItems: 'flex-end' }}>
                 <Text style={{ color: C.accent, fontSize: 11, fontWeight: '700' }}>
@@ -373,6 +381,9 @@ export default function DashboardScreen() {
                 <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>Month to Date</Text>
                 <Text style={{ color: C.accent, fontSize: 16, fontWeight: '800', marginTop: 2 }}>
                   ₱{(data.earningsSummary?.month?.netProfit ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </Text>
+                <Text style={{ color: C.warning, fontSize: 10, fontWeight: '700', marginTop: 2 }}>
+                  ₱{(data.earningsSummary?.month?.pendingEarnings ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} pending fees
                 </Text>
               </View>
               <View style={{ alignItems: 'flex-end' }}>
@@ -537,7 +548,6 @@ export default function DashboardScreen() {
                   </Text>
                 </View>
               </View>
-
               <View style={{ marginTop: 14, borderTopWidth: 1, borderTopColor: C.border, paddingTop: 12 }}>
                 <TouchableOpacity
                   onPress={() => setShowSelectedDayTransactions(value => !value)}

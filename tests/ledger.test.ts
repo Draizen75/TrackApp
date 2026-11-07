@@ -83,6 +83,36 @@ describe('ledger safety rules', () => {
     });
   });
 
+  it('tracks pending debt earnings by the original debt-entry date after partial collections', () => {
+    const debtDate = new Date(2026, 2, 1, 10).toISOString();
+    const paymentDate = new Date(2026, 2, 4, 10).toISOString();
+    const dateKey = (value: string) => {
+      const date = new Date(value);
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    };
+    const unpaidDebt: Transaction = {
+      ...debt,
+      id: 31,
+      amount: 100,
+      fee: 10,
+      customer_id: 17,
+      created_at: debtDate,
+    };
+    const partialPayment: Transaction = {
+      ...payment,
+      id: 32,
+      amount: 5,
+      fee: 0,
+      customer_id: 17,
+      created_at: paymentDate,
+    };
+
+    const analysis = analyzeDebtLedger([unpaidDebt, partialPayment]);
+    expect(analysis.pendingEarningsByDate.get(dateKey(debtDate))).toBe(5);
+    expect(analysis.pendingEarningsByDate.get(dateKey(paymentDate))).toBeUndefined();
+    expect(analysis.allocation.pendingEarnings).toBe(5);
+  });
+
   it('continues FIFO collection after a targeted payment clears an earlier debt', () => {
     const firstDebt: Transaction = {
       ...debt,
@@ -184,16 +214,16 @@ describe('ledger safety rules', () => {
 
   it('summarizes only earnings within the requested calendar date range', () => {
     const dailyProfits: DailyProfitItem[] = [
-      { dateKey: '2026-03-01', date: 'Sun, 3/1', profit: 4, grossProfit: 4, netProfit: 4, txCount: 1 },
-      { dateKey: '2026-03-02', date: 'Mon, 3/2', profit: 8, grossProfit: 10, netProfit: 8, txCount: 2 },
-      { dateKey: '2026-03-03', date: 'Tue, 3/3', profit: 3, grossProfit: 6, netProfit: 3, txCount: 1 },
+      { dateKey: '2026-03-01', date: 'Sun, 3/1', profit: 4, grossProfit: 4, netProfit: 4, pendingEarnings: 9, txCount: 1 },
+      { dateKey: '2026-03-02', date: 'Mon, 3/2', profit: 8, grossProfit: 10, netProfit: 8, pendingEarnings: 5, txCount: 2 },
+      { dateKey: '2026-03-03', date: 'Tue, 3/3', profit: 3, grossProfit: 6, netProfit: 3, pendingEarnings: 2, txCount: 1 },
     ];
 
     expect(summarizeEarningsPeriod(
       dailyProfits,
       new Date(2026, 2, 2),
       new Date(2026, 2, 4),
-    )).toEqual({ grossProfit: 16, netProfit: 11, txCount: 3 });
+    )).toEqual({ grossProfit: 16, netProfit: 11, pendingEarnings: 7, txCount: 3 });
   });
 
   it('classifies settled balances consistently while preserving customer credits', () => {
