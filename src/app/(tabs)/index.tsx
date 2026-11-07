@@ -261,7 +261,7 @@ export default function DashboardScreen() {
           <View style={{ height: 1, backgroundColor: '#ffffff20', marginBottom: 16 }} />
 
           {/* Ledger status */}
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 12, columnGap: 10 }}>
             {[
               { icon: <TrendingUp size={13} color={C.text2} />, label: 'Fees Recorded', value: data.grossProfit, color: C.text1 },
               { icon: <Check size={13} color={C.success} />, label: 'Principal Paid', value: data.principalPaid, color: C.success },
