@@ -1,0 +1,67 @@
+appId: com.draizen.TrackApp
+---
+# End-to-end financial lifecycle on a clean Android install:
+# create debtor + debt, record a partial principal payment, then verify
+# the remaining balance survives an app process restart.
+- launchApp:
+    clearState: true
+- tapOn:
+    text: "Wait"
+    optional: true
+- extendedWaitUntil:
+    visible: "Earnings Collected"
+    timeout: 30000
+
+- tapOn: "Quick Entry"
+- tapOn:
+    text: "Base transaction amount"
+- inputText: "100"
+- tapOn:
+    text: "Edit service fee"
+- tapOn:
+    text: "Service fee"
+- inputText: "0"
+- hideKeyboard
+- tapOn: "Record as customer debt"
+- tapOn:
+    text: "Debtor customer name"
+- inputText: "Maestro QA Debt"
+- hideKeyboard
+- tapOn: "LOG TRANSACTION"
+- extendedWaitUntil:
+    visible: "Transaction logged successfully!"
+    timeout: 15000
+
+- tapOn: "Debtors"
+- extendedWaitUntil:
+    visible: "Maestro QA Debt"
+    timeout: 15000
+- assertVisible: "₱100.00"
+- tapOn: "Settle"
+- extendedWaitUntil:
+    visible: "Settle Ledger"
+    timeout: 10000
+- tapOn:
+    text: "Settlement total received"
+- eraseText: 20
+- inputText: "40"
+- hideKeyboard
+- assertVisible: "Principal applied"
+- assertVisible: "₱40.00"
+- tapOn: "Confirm Payment"
+- extendedWaitUntil:
+    visible: "Remaining ₱60.00"
+    timeout: 15000
+- assertVisible: "Remaining ₱60.00"
+
+# A process restart must not lose or duplicate the saved ledger state.
+- stopApp
+- launchApp
+- tapOn:
+    text: "Wait"
+    optional: true
+- tapOn: "Debtors"
+- extendedWaitUntil:
+    visible: "Maestro QA Debt"
+    timeout: 15000
+- assertVisible: "₱60.00"
