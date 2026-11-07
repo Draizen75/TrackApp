@@ -7,6 +7,7 @@ type GoldButtonProps = {
   label: string;
   onPress: () => void | Promise<void>;
   accessibilityLabel?: string;
+  testID?: string;
   disabled?: boolean;
   loading?: boolean;
   leadingIcon?: ReactNode;
@@ -17,6 +18,7 @@ export function GoldButton({
   label,
   onPress,
   accessibilityLabel,
+  testID,
   disabled = false,
   loading = false,
   leadingIcon,
@@ -25,6 +27,7 @@ export function GoldButton({
   return (
     <TouchableOpacity
       accessibilityRole="button"
+      testID={testID}
       accessibilityLabel={accessibilityLabel || label}
       accessibilityState={{ disabled }}
       disabled={disabled}

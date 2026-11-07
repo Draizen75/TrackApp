@@ -4,7 +4,7 @@ import { GoldButton } from '@/components/gold-button';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useLocalSearchParams, useFocusEffect, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { History, Pencil, RotateCcw, Search, UserPlus } from 'lucide-react-native';
+import { History, Pencil, RotateCcw, Search } from 'lucide-react-native';
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { Keyboard, KeyboardAvoidingView, ScrollView, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -68,7 +68,6 @@ export default function EntryScreen() {
 
   const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(null);
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
-  const [newCustomerPhone, setNewCustomerPhone] = useState('');
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [isFeeOverride, setIsFeeOverride] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
@@ -189,7 +188,6 @@ export default function EntryScreen() {
 
   const selectCustomer = (id: number, name: string) => {
     setSelectedCustomerId(id);
-    setNewCustomerPhone('');
     setValue('customerName', name);
     setCustomerSearchQuery(name);
     setShowCustomerDropdown(false);
@@ -213,7 +211,6 @@ export default function EntryScreen() {
     if (!enabled) {
       setValue('customerName', '');
       setSelectedCustomerId(null);
-      setNewCustomerPhone('');
       setCustomerSearchQuery('');
       setShowCustomerDropdown(false);
     }
@@ -238,7 +235,7 @@ export default function EntryScreen() {
           if (process.env.EXPO_OS !== 'web') {
             await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           }
-          finalCustomerId = await addCustomerMutation.mutateAsync({ name: trimmedName, phone: newCustomerPhone.trim() || undefined });
+          finalCustomerId = await addCustomerMutation.mutateAsync({ name: trimmedName });
           await refetchCustomers();
         }
       }
@@ -278,7 +275,6 @@ export default function EntryScreen() {
     });
     setIsFeeOverride(false);
     setSelectedCustomerId(null);
-    setNewCustomerPhone('');
     setCustomerSearchQuery('');
     setShowCustomerDropdown(false);
   };
@@ -393,6 +389,7 @@ export default function EntryScreen() {
                   name="amount"
                   render={({ field: { onChange, onBlur, value } }) => (
                     <TextInput
+                      testID="base-transaction-amount"
                       accessibilityLabel="Base transaction amount"
                       style={{
                         backgroundColor: C.bg,
@@ -425,6 +422,7 @@ export default function EntryScreen() {
                   </Text>
                   <TouchableOpacity
                     accessibilityRole="button"
+                    testID="edit-service-fee"
                     accessibilityLabel={isFeeOverride ? 'Use suggested service fee' : 'Edit service fee'}
                     onPress={() => setIsFeeOverride(value => !value)}
                     hitSlop={8}
@@ -440,6 +438,7 @@ export default function EntryScreen() {
                   name="fee"
                   render={({ field: { onChange, onBlur, value } }) => (
                     <TextInput
+                      testID="service-fee"
                       accessibilityLabel="Service fee"
                       style={{
                         backgroundColor: C.bg,
@@ -598,6 +597,7 @@ export default function EntryScreen() {
                   name="is_debt"
                   render={({ field: { value } }) => (
                     <Switch
+                      testID="record-as-customer-debt"
                       accessibilityLabel="Record as customer debt"
                       trackColor={{ false: C.border, true: C.success }}
                       thumbColor={value ? C.text1 : C.text3}
@@ -660,68 +660,64 @@ export default function EntryScreen() {
                     name="customerName"
                     render={({ field: { onChange, value } }) => (
                       <TextInput
+                        testID="debtor-customer-name"
                         accessibilityLabel="Debtor customer name"
                         style={{ flex: 1, color: C.text1, fontSize: 14, fontWeight: '600', height: 40 }}
                         placeholder="Search or enter debtor name..."
                         placeholderTextColor={C.text3}
+                        autoCapitalize="words"
+                        autoCorrect={false}
+                        returnKeyType="done"
                         onChangeText={(txt) => {
                           onChange(txt);
                           setCustomerSearchQuery(txt);
                           setShowCustomerDropdown(true);
                           setSelectedCustomerId(null);
-                          setNewCustomerPhone('');
                         }}
                         value={value}
-                        onFocus={() => setShowCustomerDropdown(true)}
+                        onFocus={() => {
+                          setCustomerSearchQuery(value || '');
+                          setShowCustomerDropdown(true);
+                        }}
                       />
                     )}
                   />
                 </View>
                 {showCustomerDropdown && customerSearchQuery.trim().length > 0 && (
-                  <View style={{ position: 'absolute', top: 64, left: 0, right: 0, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border, borderRadius: 16, maxHeight: 160, overflow: 'hidden', zIndex: 50 }}>
-                    <ScrollView keyboardShouldPersistTaps="always" style={{ flex: 1 }}>
+                  <View
+                    accessibilityLabel="Customer search results"
+                    style={{
+                      marginTop: 8,
+                      backgroundColor: C.surface2,
+                      borderWidth: 1,
+                      borderColor: C.border,
+                      borderRadius: 14,
+                      maxHeight: 180,
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <ScrollView
+                      keyboardShouldPersistTaps="always"
+                      nestedScrollEnabled
+                      style={{ flexGrow: 0 }}
+                    >
                       {filteredCustomers.map((item: any) => (
                         <TouchableOpacity
                           key={item.id}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Select customer ${item.name}`}
                           onPress={() => selectCustomer(item.id, item.name)}
-                          style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderColor: C.border }}
+                          style={{ paddingHorizontal: 16, paddingVertical: 13, borderBottomWidth: 1, borderColor: C.border }}
                         >
-                          <Text style={{ color: C.text2, fontSize: 13, fontWeight: '600' }}>{item.name}</Text>
+                          <Text style={{ color: C.text2, fontSize: 14, fontWeight: '600' }}>{item.name}</Text>
                         </TouchableOpacity>
                       ))}
                       {filteredCustomers.length === 0 && (
-                        <Text style={{ color: C.text3, fontSize: 12, padding: 12 }}>
-                          No existing customer matches.
+                        <Text style={{ color: C.text3, fontSize: 12, lineHeight: 18, padding: 12 }}>
+                          No matching customer. A new customer will be created when you log this debt.
                         </Text>
                       )}
-                      {isNewCustomer && (
-                        <TouchableOpacity
-                          onPress={() => {
-                            setShowCustomerDropdown(false);
-                          }}
-                          style={{ padding: 12, flexDirection: 'row', alignItems: 'center', gap: 8 }}
-                        >
-                          <UserPlus size={14} color={C.accent} />
-                          <Text style={{ color: C.accent, fontSize: 12, fontWeight: '700' }}>Use as a new customer</Text>
-                        </TouchableOpacity>
-                      )}
                     </ScrollView>
-                  </View>
-                )}
-                {isNewCustomer && (
-                  <View style={{ marginTop: 8 }}>
-                    <Text style={{ color: C.text3, fontSize: 11, marginBottom: 6 }}>
-                      This customer will be added when you log the debt.
-                    </Text>
-                    <TextInput
-                      accessibilityLabel="New debtor phone number"
-                      keyboardType="phone-pad"
-                      value={newCustomerPhone}
-                      onChangeText={setNewCustomerPhone}
-                      placeholder="Phone number (optional)"
-                      placeholderTextColor={C.text3}
-                      style={{ color: C.text1, fontSize: 13, backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10 }}
-                    />
                   </View>
                 )}
               </View>
@@ -738,6 +734,7 @@ export default function EntryScreen() {
           backgroundColor: C.bg,
         }}>
           <GoldButton
+            testID="log-transaction"
             onPress={handleSubmit(onSubmit)}
             disabled={isSubmitting || addCustomerMutation.isPending || addTransactionMutation.isPending}
             loading={isSubmitting || addCustomerMutation.isPending || addTransactionMutation.isPending}

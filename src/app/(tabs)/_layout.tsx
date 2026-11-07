@@ -49,6 +49,7 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: 'Dashboard',
+          tabBarButtonTestID: 'tab-dashboard',
           tabBarIcon: ({ color, size }) => <Home size={size || 20} color={color} />,
         }}
       />
@@ -56,6 +57,7 @@ export default function TabsLayout() {
         name="entry"
         options={{
           title: 'Quick Entry',
+          tabBarButtonTestID: 'tab-quick-entry',
           tabBarHideOnKeyboard: true,
           tabBarIcon: ({ color, size }) => <PlusCircle size={size || 20} color={color} />,
         }}
@@ -64,6 +66,7 @@ export default function TabsLayout() {
         name="debtors"
         options={{
           title: 'Debtors',
+          tabBarButtonTestID: 'tab-debtors',
           tabBarIcon: ({ color, size }) => <Users size={size || 20} color={color} />,
         }}
       />
@@ -71,6 +74,7 @@ export default function TabsLayout() {
         name="history"
         options={{
           title: 'History',
+          tabBarButtonTestID: 'tab-history',
           tabBarIcon: ({ color, size }) => <History size={size || 20} color={color} />,
         }}
       />
@@ -78,6 +82,7 @@ export default function TabsLayout() {
         name="data"
         options={{
           title: 'Settings',
+          tabBarButtonTestID: 'tab-settings',
           tabBarIcon: ({ color, size }) => <Settings size={size || 20} color={color} />,
         }}
       />

@@ -832,6 +832,7 @@ export default function DataScreen() {
             {wallets.map((wallet) => (
               <TouchableOpacity
                 key={wallet.channel}
+                testID={`wallet-balance-${wallet.channel.trim().toUpperCase().replace(/\s+/g, '-')}`}
                 onPress={() => handleOpenEditModal(wallet)}
                 style={{
                   backgroundColor: C.surface2,
@@ -1328,6 +1329,8 @@ export default function DataScreen() {
 
               <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>New Balance (₱)</Text>
               <TextInput
+                testID="wallet-balance-input"
+                accessibilityLabel="Wallet balance"
                 style={{
                   backgroundColor: C.bg,
                   borderWidth: 1,
@@ -1348,6 +1351,9 @@ export default function DataScreen() {
 
               <TouchableOpacity
                 onPress={handleSaveBalance}
+                testID="confirm-wallet-balance"
+                accessibilityRole="button"
+                accessibilityLabel="Confirm Balance Override"
                 style={{
                   width: '100%',
                   paddingVertical: 16,
