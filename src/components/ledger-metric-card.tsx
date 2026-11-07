@@ -13,7 +13,9 @@ export function LedgerMetricCard({ icon, label, value, color }: LedgerMetricCard
   return (
     <View
       style={{
-        width: '48%',
+        width: '47%',
+        flexGrow: 0,
+        flexShrink: 0,
         minHeight: 78,
         alignItems: 'flex-start',
         backgroundColor: 'rgba(8,9,15,0.42)',
