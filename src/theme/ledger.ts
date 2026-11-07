@@ -23,15 +23,31 @@ export const ledgerColors = {
 
 export const ledgerRadius = {
   control: 12,
-  card: 16,
-  sheet: 18,
+  card: 18,
+  sheet: 24,
+  pill: 999,
+} as const;
+
+export const ledgerSpacing = {
+  xxs: 4,
+  xs: 8,
+  sm: 12,
+  md: 16,
+  lg: 20,
+  xl: 24,
+  xxl: 32,
 } as const;
 
 export const ledgerTypography = {
-  display: 32,
-  pageTitle: 24,
+  display: 34,
+  pageTitle: 26,
   sectionTitle: 16,
   body: 14,
   secondary: 12,
   caption: 10,
+} as const;
+
+export const ledgerElevation = {
+  card: { boxShadow: '0 8px 24px rgba(0,0,0,0.24)' },
+  accent: { boxShadow: '0 8px 28px rgba(255,176,32,0.14)' },
 } as const;

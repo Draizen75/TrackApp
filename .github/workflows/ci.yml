@@ -99,11 +99,25 @@ jobs:
           script: |
             bash .github/scripts/android-e2e.sh
 
+      - name: Prepare Android test artifacts
+        if: always()
+        run: |
+          mkdir -p .maestro-results .android-diagnostics
+          if [ ! -f .android-diagnostics/runner-started.txt ]; then
+            echo "Android test script did not create diagnostics in the workspace." > .android-diagnostics/artifact-note.txt
+          fi
+          if [ ! -f .maestro-results/junit.xml ]; then
+            echo "Maestro did not produce a JUnit report; inspect the Android job logs and diagnostics." > .maestro-results/artifact-note.txt
+          fi
+
       - name: Upload Android UI test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: android-maestro-results
-          path: .maestro-results/
-          if-no-files-found: ignore
+          path: |
+            .maestro-results/
+            .android-diagnostics/
+          if-no-files-found: error
+          include-hidden-files: true
           retention-days: 7

@@ -22,7 +22,8 @@ import * as SMS from 'expo-sms';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
-import { ledgerColors as C } from '@/theme/ledger';
+import { ledgerColors as C, ledgerRadius, ledgerSpacing } from '@/theme/ledger';
+import { LedgerEmptyState, LedgerErrorState, LedgerLoadingState } from '@/components/ledger-state';
 import { getDebtorPaymentLabel, isPaymentWithinDays } from '@/utils/debtor-payment-label';
 import { useScreenFocus } from '@/hooks/useScreenFocus';
 import { isValidMoneyInput } from '@/utils/strict-money';
@@ -845,17 +846,15 @@ export default function DebtorsScreen() {
                 })}
               </ScrollView>
               {isError ? (
-                <TouchableOpacity onPress={() => refetch()} accessibilityRole="button" accessibilityLabel="Retry loading debtors" style={{ paddingVertical: 16, alignItems: 'center' }}>
-                  <Text style={{ color: C.danger, fontSize: 13 }}>Could not load debtor records. Tap to retry.</Text>
-                </TouchableOpacity>
+                <LedgerErrorState compact title="Debtor records unavailable" description="Your debtor list could not be loaded." onRetry={() => { void refetch(); }} />
               ) : isLoading ? (
-                <Text style={{ color: C.text3, textAlign: 'center', paddingVertical: 24 }}>Loading ledger records...</Text>
+                <LedgerLoadingState label="Loading debtor records…" />
               ) : activeDebtors.length === 0 ? (
-                <View style={{ paddingVertical: 24, alignItems: 'center', backgroundColor: C.surface, borderRadius: 16, borderWidth: 1, borderColor: C.border }}>
-                  <Text style={{ color: C.text3, fontSize: 13 }}>
-                    {activeQuickFilter === 'all' ? 'No active outstanding debts.' : 'No debtors match this filter.'}
-                  </Text>
-                </View>
+                <LedgerEmptyState
+                  title={activeQuickFilter === 'all' && !searchQuery.trim() ? 'No active debts yet' : 'No matching debtors'}
+                  description={activeQuickFilter === 'all' && !searchQuery.trim() ? 'New customers with an outstanding balance will appear here.' : 'Try another name or filter to find a debtor.'}
+                  tone="accent"
+                />
               ) : null}
             </View>
           ) : section.kind === 'credit' ? (
@@ -877,7 +876,7 @@ export default function DebtorsScreen() {
           )}
           ListHeaderComponent={(
             <>
-              <View style={{ backgroundColor: C.surface, borderRadius: 22, padding: 20, borderWidth: 1, borderColor: C.border, marginTop: 12, marginBottom: 16 }}>
+              <View style={{ backgroundColor: C.surface, borderRadius: ledgerRadius.sheet, padding: ledgerSpacing.lg, borderWidth: 1, borderColor: C.border, marginTop: 12, marginBottom: 16 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                   <View>
                     <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>Total Outstanding Debt</Text>
@@ -909,7 +908,9 @@ export default function DebtorsScreen() {
               <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 20 }}>
                 <Search size={18} color={C.text3} style={{ marginRight: 8 }} />
                 <TextInput
-                  style={{ flex: 1, color: C.text1, fontSize: 14 }}
+                  style={{ flex: 1, color: C.text1, fontSize: 14, minHeight: 24 }}
+                  accessibilityLabel="Search debtors by name"
+                  returnKeyType="search"
                   placeholder="Search debtors by name..."
                   placeholderTextColor={C.text3}
                   value={searchQuery}
@@ -1295,7 +1296,7 @@ export default function DebtorsScreen() {
                 </TouchableOpacity>
               </View>
 
-              <Text style={{ color: C.text3, fontSize: 11, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>Total Payment Received (PHP)</Text>
+              <Text style={{ color: C.text3, fontSize: 11, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 8 }}>Total received</Text>
               <TextInput
                 style={{
                   backgroundColor: C.bg,
@@ -1317,7 +1318,7 @@ export default function DebtorsScreen() {
                 editable={!settleMutation.isPending}
               />
 
-              <Text style={{ color: C.text3, fontSize: 11, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>Extra Profit (Suggested, Editable)</Text>
+              <Text style={{ color: C.text3, fontSize: 11, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 8 }}>Extra profit / interest</Text>
               <TextInput
                 style={{
                   backgroundColor: C.bg,
@@ -1338,11 +1339,33 @@ export default function DebtorsScreen() {
                 placeholderTextColor={C.text3}
                 editable={!settleMutation.isPending}
               />
-              <Text style={{ color: C.text3, fontSize: 10, marginTop: -8, marginBottom: 16 }}>
-                Amounts above the pending balance suggest extra profit automatically. You can edit the suggestion, or set payment to 0 to record profit only.
+              <Text style={{ color: C.text3, fontSize: 11, lineHeight: 17, marginTop: -8, marginBottom: 14 }}>
+                Suggested automatically when the amount exceeds the selected outstanding principal. You can edit it or record profit only. Extra profit never reduces principal.
               </Text>
 
-              <Text style={{ color: C.text3, fontSize: 11, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>Destination Channel (Add Float)</Text>
+              <View style={{ backgroundColor: C.bg, borderRadius: ledgerRadius.card, borderWidth: 1, borderColor: C.border, padding: ledgerSpacing.md, marginBottom: ledgerSpacing.lg }}>
+                <Text style={{ color: C.text2, fontSize: 10, fontWeight: '800', letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 10 }}>Payment breakdown preview</Text>
+                {(() => {
+                  const preview = splitSettlementReceived(Number(settleAmount) || 0, getSettlementPrincipalCap());
+                  const profit = settleProfit.trim() === '' ? preview.suggestedProfit : Number(settleProfit);
+                  return <>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 7 }}>
+                      <Text style={{ color: C.text3, fontSize: 12 }}>Principal applied</Text>
+                      <Text style={{ color: C.text1, fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] }}>₱{preview.principal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 9 }}>
+                      <Text style={{ color: C.text3, fontSize: 12 }}>Extra profit</Text>
+                      <Text style={{ color: C.accent, fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] }}>₱{(Number.isFinite(profit) ? profit : 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+                    </View>
+                    <View style={{ height: 1, backgroundColor: C.border, marginBottom: 9 }} />
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <Text style={{ color: C.text2, fontSize: 12, fontWeight: '700' }}>Total received</Text>
+                      <Text style={{ color: C.success, fontSize: 14, fontWeight: '900', fontVariant: ['tabular-nums'] }}>₱{(Number(settleAmount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+                    </View>
+                  </>;
+                })()}
+              </View>
+              <Text style={{ color: C.text3, fontSize: 11, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 8 }}>Deposit into wallet</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
                 {wallets.map((w: any) => {
                   const channel = w.channel;
