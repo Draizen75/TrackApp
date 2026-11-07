@@ -832,7 +832,7 @@ export default function DataScreen() {
             {wallets.map((wallet) => (
               <TouchableOpacity
                 key={wallet.channel}
-                testID={`wallet-balance-${wallet.channel}`}
+                testID={`wallet-balance-${wallet.channel.trim().toUpperCase().replace(/\s+/g, '-')}`}
                 onPress={() => handleOpenEditModal(wallet)}
                 style={{
                   backgroundColor: C.surface2,
