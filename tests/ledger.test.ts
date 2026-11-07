@@ -214,16 +214,16 @@ describe('ledger safety rules', () => {
 
   it('summarizes only earnings within the requested calendar date range', () => {
     const dailyProfits: DailyProfitItem[] = [
-      { dateKey: '2026-03-01', date: 'Sun, 3/1', profit: 4, grossProfit: 4, netProfit: 4, pendingEarnings: 0, txCount: 1 },
-      { dateKey: '2026-03-02', date: 'Mon, 3/2', profit: 8, grossProfit: 10, netProfit: 8, pendingEarnings: 0, txCount: 2 },
-      { dateKey: '2026-03-03', date: 'Tue, 3/3', profit: 3, grossProfit: 6, netProfit: 3, pendingEarnings: 0, txCount: 1 },
+      { dateKey: '2026-03-01', date: 'Sun, 3/1', profit: 4, grossProfit: 4, netProfit: 4, pendingEarnings: 9, txCount: 1 },
+      { dateKey: '2026-03-02', date: 'Mon, 3/2', profit: 8, grossProfit: 10, netProfit: 8, pendingEarnings: 5, txCount: 2 },
+      { dateKey: '2026-03-03', date: 'Tue, 3/3', profit: 3, grossProfit: 6, netProfit: 3, pendingEarnings: 2, txCount: 1 },
     ];
 
     expect(summarizeEarningsPeriod(
       dailyProfits,
       new Date(2026, 2, 2),
       new Date(2026, 2, 4),
-    )).toEqual({ grossProfit: 16, netProfit: 11, txCount: 3 });
+    )).toEqual({ grossProfit: 16, netProfit: 11, pendingEarnings: 7, txCount: 3 });
   });
 
   it('classifies settled balances consistently while preserving customer credits', () => {
