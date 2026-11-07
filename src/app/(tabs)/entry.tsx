@@ -597,6 +597,7 @@ export default function EntryScreen() {
                   name="is_debt"
                   render={({ field: { value } }) => (
                     <Switch
+                      testID="record-as-customer-debt"
                       accessibilityLabel="Record as customer debt"
                       trackColor={{ false: C.border, true: C.success }}
                       thumbColor={value ? C.text1 : C.text3}
@@ -733,6 +734,7 @@ export default function EntryScreen() {
           backgroundColor: C.bg,
         }}>
           <GoldButton
+            testID="log-transaction"
             onPress={handleSubmit(onSubmit)}
             disabled={isSubmitting || addCustomerMutation.isPending || addTransactionMutation.isPending}
             loading={isSubmitting || addCustomerMutation.isPending || addTransactionMutation.isPending}
