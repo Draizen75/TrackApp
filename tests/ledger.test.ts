@@ -4,6 +4,7 @@ import {
   analyzeDebtLedger,
   applyOptimisticDebtPayment,
   calculateCollectedDebtEarningsByDate,
+  calculateSettlementTotalForProfit,
   calculateDebtPaymentAllocation,
   calculateLedgerDebtAllocation,
   calculateOldestUnpaidDebtDate,
@@ -356,6 +357,21 @@ describe('ledger safety rules', () => {
   it('caps a selected-debt settlement while preserving excess as suggested profit', () => {
     expect(splitSettlementReceived(60, 55)).toEqual({ principal: 55, suggestedProfit: 5 });
     expect(splitSettlementReceived(40, 55)).toEqual({ principal: 40, suggestedProfit: 0 });
+  });
+
+  it('adds manually entered profit to the total received without changing principal', () => {
+    expect(calculateSettlementTotalForProfit(2550, 2550, 100)).toBe(2650);
+    expect(splitSettlementReceived(calculateSettlementTotalForProfit(2550, 2550, 100), 2550))
+      .toEqual({ principal: 2550, suggestedProfit: 100 });
+  });
+
+  it('synchronizes profit changes for partial principal payments', () => {
+    expect(calculateSettlementTotalForProfit(40, 55, 5)).toBe(45);
+  });
+
+  it('preserves the zero-received profit-only workflow', () => {
+    expect(calculateSettlementTotalForProfit(0, 2550, 100)).toBe(0);
+    expect(isSettlementBreakdownBalanced(0, 0, 100)).toBe(true);
   });
 
   it('requires every received peso to be accounted for as principal or extra profit', () => {
