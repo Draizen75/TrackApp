@@ -272,6 +272,23 @@ export function splitSettlementReceived(received: number, principalCap: number) 
   };
 }
 
+/**
+ * Keeps the entered collection total synchronized when a user edits extra
+ * profit. A zero-received value is intentionally preserved for the existing
+ * profit-only workflow, where no principal is applied.
+ */
+export function calculateSettlementTotalForProfit(
+  received: number,
+  principalCap: number,
+  profit: number,
+) {
+  const safeReceived = Number.isFinite(received) ? Math.max(0, received) : 0;
+  const safeProfit = Number.isFinite(profit) ? Math.max(0, profit) : 0;
+  if (safeReceived === 0) return 0;
+  const { principal } = splitSettlementReceived(safeReceived, principalCap);
+  return roundCurrency(principal + safeProfit);
+}
+
 export function isSettlementBreakdownBalanced(
   received: number,
   principal: number,
