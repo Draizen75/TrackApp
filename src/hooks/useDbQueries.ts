@@ -220,6 +220,7 @@ export interface DailyProfitItem {
   profit: number; // Legacy alias for earnings collected.
   grossProfit: number; // Fees recorded, including fees on unpaid debts.
   netProfit: number; // Earnings collected, excluding unpaid debt fees.
+  pendingEarnings: number; // Remaining unpaid debt fees from debts created on this date.
   txCount: number;
 }
 
@@ -474,6 +475,7 @@ export interface DebtCustomerLedgerSummary {
 export interface DebtLedgerAnalysis {
   allocation: DebtPaymentAllocation;
   collectedEarningsByDate: Map<string, number>;
+  pendingEarningsByDate: Map<string, number>;
   customers: Map<number, DebtCustomerLedgerSummary>;
 }
 
@@ -501,6 +503,12 @@ export function analyzeDebtLedger(transactions: Transaction[]): DebtLedgerAnalys
     pendingEarnings: 0,
   };
   const collectedEarningsByDate = new Map<string, number>();
+  const pendingEarningsByDate = new Map<string, number>();
+  const addPendingEarnings = (createdAt: string, amount: number) => {
+    if (amount <= 0) return;
+    const dateKey = extractStoredDateKey(createdAt);
+    pendingEarningsByDate.set(dateKey, (pendingEarningsByDate.get(dateKey) || 0) + amount);
+  };
   const states = new Map<number, CustomerState>();
   const addCollectedEarnings = (createdAt: string, amount: number) => {
     const dateKey = extractStoredDateKey(createdAt);
@@ -532,6 +540,7 @@ export function analyzeDebtLedger(transactions: Transaction[]): DebtLedgerAnalys
       if (transaction.is_debt === 1) {
         allocation.pendingPrincipal += principal;
         allocation.pendingEarnings += earnings;
+        addPendingEarnings(transaction.created_at, earnings);
       } else {
         const extraProfit = Number(transaction.fee) || 0;
         allocation.extraProfitPaid += extraProfit;
@@ -616,6 +625,7 @@ export function analyzeDebtLedger(transactions: Transaction[]): DebtLedgerAnalys
     for (const debt of state.debts) {
       allocation.pendingPrincipal += debt.principal;
       allocation.pendingEarnings += debt.earnings;
+      addPendingEarnings(debt.createdAt, debt.earnings);
     }
     customers.set(customerId, {
       balance: state.balance,
@@ -625,7 +635,7 @@ export function analyzeDebtLedger(transactions: Transaction[]): DebtLedgerAnalys
     });
   }
 
-  return { allocation, collectedEarningsByDate, customers };
+  return { allocation, collectedEarningsByDate, pendingEarningsByDate, customers };
 }
 
 /**
@@ -1315,6 +1325,7 @@ const getDashboardMetrics = (
       profit: earningsCollected,
       grossProfit: dayMetrics.grossProfit,
       netProfit: earningsCollected,
+      pendingEarnings: debtAnalysis.pendingEarningsByDate.get(dateStr) || 0,
       txCount: dayMetrics.txCount,
     });
   }
@@ -2329,6 +2340,7 @@ export function useDbQueries() {
             profit: earningsCollected,
             grossProfit: dayMetrics.grossProfit,
             netProfit: earningsCollected,
+            pendingEarnings: debtAnalysis.pendingEarningsByDate.get(dateStr) || 0,
             txCount: dayMetrics.txCount,
           });
         }
