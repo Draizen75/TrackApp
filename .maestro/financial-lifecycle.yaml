@@ -14,7 +14,8 @@ appId: com.draizen.TrackApp
 
 - tapOn: "Quick Entry"
 - extendedWaitUntil:
-    visible: "Base Amount (₱)"
+    visible:
+      id: "base-transaction-amount"
     timeout: 15000
 - tapOn:
     id: "base-transaction-amount"
