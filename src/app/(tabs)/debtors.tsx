@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Modal, KeyboardAvoidingView, FlatList, SectionList } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Modal, Keyboard, KeyboardAvoidingView, FlatList, SectionList } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { calculateDebtPaymentAllocation, getDebtOutstandingById, getDebtorBalanceStatus, isSettlementBreakdownBalanced, splitSettlementReceived, calculateSettlementTotalForProfit, useDbQueries, Debtor, Transaction, cleanErrorMessage } from '@/hooks/useDbQueries';
 import { ToastNotice, useToast, type ToastType } from '@/components/toast';
@@ -59,6 +59,13 @@ export default function DebtorsScreen() {
   const [settleProfit, setSettleProfit] = useState('');
   const [settleChannel, setSettleChannel] = useState<string>('PHYSICAL_CASH');
   const [modalVisible, setModalVisible] = useState(false);
+  const [isSettlementKeyboardVisible, setIsSettlementKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', () => setIsSettlementKeyboardVisible(true));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setIsSettlementKeyboardVisible(false));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
   const [settlementNotice, setSettlementNotice] = useState<{ message: string; type: ToastType } | null>(null);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [showSettledList, setShowSettledList] = useState(false);
@@ -1281,7 +1288,14 @@ export default function DebtorsScreen() {
           animationType="slide"
           transparent={true}
           visible={modalVisible}
-          onRequestClose={() => setModalVisible(false)}
+          onRequestClose={() => {
+            // Android back dismisses the keyboard first; keep the settlement modal mounted.
+            if (isSettlementKeyboardVisible) {
+              Keyboard.dismiss();
+              return;
+            }
+            setModalVisible(false);
+          }}
         >
           <KeyboardAvoidingView
             behavior={process.env.EXPO_OS === 'ios' ? 'padding' : undefined}
