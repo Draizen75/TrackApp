@@ -25,6 +25,16 @@ function createDatabaseAdapter(database: Database) {
     },
     getAllAsync: async <T extends Row>(statement: string, params: SqlValue[] = []) => rows<T>(database, statement, params),
     getFirstAsync: async <T extends Row>(statement: string, params: SqlValue[] = []) => rows<T>(database, statement, params)[0] ?? null,
+    withTransactionAsync: async (task: () => Promise<void>) => {
+      database.run('BEGIN');
+      try {
+        await task();
+        database.run('COMMIT');
+      } catch (error) {
+        database.run('ROLLBACK');
+        throw error;
+      }
+    },
   };
 }
 
