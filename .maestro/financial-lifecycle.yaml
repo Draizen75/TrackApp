@@ -28,6 +28,11 @@ appId: com.draizen.TrackApp
     timeout: 15000
 - tapOn:
     id: "wallet-balance-GCASH"
+# The emulator can surface the Pixel Launcher ANR dialog again when opening
+# the wallet modal. Dismiss it so it cannot intercept the balance-field tap.
+- tapOn:
+    text: "Wait"
+    optional: true
 - extendedWaitUntil:
     visible:
       id: "wallet-balance-input"

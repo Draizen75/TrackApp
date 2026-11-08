@@ -201,10 +201,6 @@ export default function EntryScreen() {
     isDebt,
     deductFee,
   });
-  const normalizedCustomerName = watchCustomerName?.trim().toLowerCase() ?? '';
-  const isNewCustomer = normalizedCustomerName.length > 0
-    && selectedCustomerId === null
-    && !customers.some((customer: { name: string }) => customer.name.trim().toLowerCase() === normalizedCustomerName);
 
   const setDebtMode = (enabled: boolean) => {
     setValue('is_debt', enabled);
