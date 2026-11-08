@@ -53,6 +53,7 @@ describe('SQLite migration repair atomicity', () => {
     try {
       const normalDb = createAdapter(database);
       await migrateDbIfNeeded(normalDb as any);
+      await normalDb.runAsync("UPDATE wallets SET balance = 1000 WHERE channel = 'GCASH'");
       await normalDb.runAsync(
         "INSERT INTO customers (id, name, created_at) VALUES (1, 'Legacy debtor', '2026-01-01T00:00:00.000Z')"
       );
