@@ -96,7 +96,8 @@ appId: com.draizen.TrackApp
     id: "settlement-total-received"
 - eraseText: 20
 - inputText: "40"
-- hideKeyboard
+# This is a native Modal too; avoid back-based keyboard dismissal here.
+- assertVisible: "Confirm Payment"
 - assertVisible: "Principal applied"
 - assertVisible: "₱40.00"
 - tapOn: "Confirm Payment"
