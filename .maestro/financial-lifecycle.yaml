@@ -28,6 +28,10 @@ appId: com.draizen.TrackApp
     timeout: 15000
 - tapOn:
     id: "wallet-balance-GCASH"
+- extendedWaitUntil:
+    visible:
+      id: "wallet-balance-input"
+    timeout: 10000
 - tapOn:
     id: "wallet-balance-input"
 - eraseText: 20
