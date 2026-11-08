@@ -105,7 +105,7 @@ jobs:
           if [ ! -f .android-diagnostics/runner-started.txt ]; then
             echo "Android test script did not create diagnostics in the workspace." > .android-diagnostics/artifact-note.txt
           fi
-          if [ ! -f .maestro-results/junit.xml ]; then
+          if [ ! -f .maestro-results/financial-lifecycle-junit.xml ]; then
             echo "Maestro did not produce a JUnit report; inspect the Android job logs and diagnostics." > .maestro-results/artifact-note.txt
           fi
 
