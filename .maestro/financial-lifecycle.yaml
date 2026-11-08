@@ -96,7 +96,8 @@ appId: com.draizen.TrackApp
     id: "settlement-total-received"
 - eraseText: 20
 - inputText: "40"
-# This is a native Modal too; avoid back-based keyboard dismissal here.
+# Dismiss the IME; the settlement modal now handles Android back safely.
+- hideKeyboard
 - assertVisible: "Confirm Payment"
 - assertVisible: "Principal applied"
 - assertVisible: "₱40.00"
@@ -143,7 +144,8 @@ appId: com.draizen.TrackApp
     id: "settlement-extra-profit"
 - eraseText: 20
 - inputText: "5"
-# Keep the settlement modal mounted; tapping its confirm action dismisses it.
+- hideKeyboard
+# Confirm the button is exposed after the keyboard is dismissed.
 - assertVisible: "Confirm Payment"
 - assertVisible: "Principal applied"
 - assertVisible: "₱60.00"
