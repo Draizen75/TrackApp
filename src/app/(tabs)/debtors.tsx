@@ -199,10 +199,12 @@ export default function DebtorsScreen() {
     if (!Number.isFinite(received) || received < 0) return;
 
     const profit = value.trim() === '' ? 0 : Number(value);
+    const previousProfit = settleProfit.trim() === '' ? 0 : Number(settleProfit);
     const nextTotal = calculateSettlementTotalForProfit(
       received,
       getSettlementPrincipalCap(),
       profit,
+      previousProfit,
     );
     setSettleAmount(nextTotal.toFixed(2));
   };
@@ -361,7 +363,7 @@ export default function DebtorsScreen() {
     // totals silently diverge. A zero-principal profit-only entry remains valid.
     if (!isSettlementBreakdownBalanced(received, amount, profit)) {
       setSettlementNotice({
-        message: `Total received (₱${received.toFixed(2)}) must equal principal (₱${amount.toFixed(2)}) plus extra profit (₱${profit.toFixed(2)}). Keep the suggested profit or adjust the received amount.`,
+        message: `Total received (₱${received.toFixed(2)}) must equal debt balance paid (₱${amount.toFixed(2)}) plus extra profit (₱${profit.toFixed(2)}). Keep the suggested profit or adjust the received amount.`,
         type: 'error',
       });
       return;
@@ -1377,7 +1379,7 @@ export default function DebtorsScreen() {
                 editable={!settleMutation.isPending}
               />
               <Text style={{ color: C.text3, fontSize: 11, lineHeight: 17, marginTop: -8, marginBottom: 14 }}>
-                Suggested automatically when the amount exceeds the selected outstanding principal. You can edit it or record profit only. Extra profit never reduces principal.
+                Suggested automatically when the amount exceeds the selected outstanding debt balance. You can edit it or record profit only. Extra profit never reduces principal.
               </Text>
 
               <View style={{ backgroundColor: C.bg, borderRadius: ledgerRadius.card, borderWidth: 1, borderColor: C.border, padding: ledgerSpacing.md, marginBottom: ledgerSpacing.lg }}>
@@ -1387,7 +1389,7 @@ export default function DebtorsScreen() {
                   const profit = settleProfit.trim() === '' ? preview.suggestedProfit : Number(settleProfit);
                   return <>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 7 }}>
-                      <Text style={{ color: C.text3, fontSize: 12 }}>Principal applied</Text>
+                      <Text style={{ color: C.text3, fontSize: 12 }}>Debt balance applied</Text>
                       <Text style={{ color: C.text1, fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] }}>₱{preview.principal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
                     </View>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 9 }}>
