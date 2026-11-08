@@ -32,15 +32,15 @@ appId: com.draizen.TrackApp
     id: "wallet-balance-input"
 - eraseText: 20
 - inputText: "1000"
-# Do not use hideKeyboard inside a React Native Modal on Android: Maestro's
-# back-based keyboard dismissal triggers Modal.onRequestClose and closes the
-# editor before the confirmation button can be tapped. Submit directly.
+# Dismiss the numeric keyboard first. The wallet editor now handles Android
+# back by dismissing the IME without closing the modal.
+- hideKeyboard
 - assertVisible: "Confirm Balance Override"
 - tapOn:
     id: "confirm-wallet-balance"
 - extendedWaitUntil:
-    visible: "Wallets"
-    timeout: 10000
+    visible: "₱1,000.00"
+    timeout: 15000
 
 # Begin the debt lifecycle with the funded, clean test ledger.
 - tapOn:
