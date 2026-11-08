@@ -4,6 +4,7 @@ import {
   analyzeDebtLedger,
   applyOptimisticDebtPayment,
   calculateCollectedDebtEarningsByDate,
+  calculateSettlementTotalForProfit,
   calculateDebtPaymentAllocation,
   calculateLedgerDebtAllocation,
   calculateOldestUnpaidDebtDate,
@@ -356,6 +357,53 @@ describe('ledger safety rules', () => {
   it('caps a selected-debt settlement while preserving excess as suggested profit', () => {
     expect(splitSettlementReceived(60, 55)).toEqual({ principal: 55, suggestedProfit: 5 });
     expect(splitSettlementReceived(40, 55)).toEqual({ principal: 40, suggestedProfit: 0 });
+  });
+
+  it('adds manually entered profit to the total received without changing principal', () => {
+    expect(calculateSettlementTotalForProfit(2550, 2550, 100)).toBe(2650);
+    expect(splitSettlementReceived(calculateSettlementTotalForProfit(2550, 2550, 100), 2550))
+      .toEqual({ principal: 2550, suggestedProfit: 100 });
+  });
+
+  it('preserves the original debt payment when extra profit is repeatedly edited or cleared', () => {
+    const afterAddingProfit = calculateSettlementTotalForProfit(40, 55, 5, 0);
+    expect(afterAddingProfit).toBe(45);
+
+    const afterIncreasingProfit = calculateSettlementTotalForProfit(afterAddingProfit, 55, 10, 5);
+    expect(afterIncreasingProfit).toBe(50);
+
+    const afterReducingProfit = calculateSettlementTotalForProfit(afterIncreasingProfit, 55, 2, 10);
+    expect(afterReducingProfit).toBe(42);
+
+    const afterClearingProfit = calculateSettlementTotalForProfit(afterReducingProfit, 55, 0, 2);
+    expect(afterClearingProfit).toBe(40);
+  });
+
+  it('does not allow edited extra profit to push the debt balance portion above its cap', () => {
+    expect(calculateSettlementTotalForProfit(60, 55, 10, 5)).toBe(65);
+    expect(calculateSettlementTotalForProfit(60, 55, 0, 5)).toBe(55);
+  });
+
+  it('includes the initial contractual fee in the amount owed while keeping extra profit separate', () => {
+    const debtWithInitialFee: Transaction = { ...debt, id: 80, amount: 100, fee: 10, deduct_fee: 0 };
+    expect(getDebtEntryOutstanding([debtWithInitialFee], debtWithInitialFee.id)).toBe(110);
+
+    const paymentWithExtraProfit: Transaction = {
+      ...payment, id: 81, amount: 110, fee: 5, target_debt_id: debtWithInitialFee.id,
+    };
+    const allocation = calculateDebtPaymentAllocation([debtWithInitialFee, paymentWithExtraProfit]);
+    expect(allocation).toEqual({
+      principalPaid: 100,
+      contractualEarningsPaid: 10,
+      extraProfitPaid: 5,
+      pendingPrincipal: 0,
+      pendingEarnings: 0,
+    });
+  });
+
+  it('preserves the zero-received profit-only workflow', () => {
+    expect(calculateSettlementTotalForProfit(0, 2550, 100)).toBe(0);
+    expect(isSettlementBreakdownBalanced(0, 0, 100)).toBe(true);
   });
 
   it('requires every received peso to be accounted for as principal or extra profit', () => {

@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Modal, KeyboardAvoidingView, FlatList, SectionList } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Modal, Keyboard, KeyboardAvoidingView, FlatList, SectionList } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { calculateDebtPaymentAllocation, getDebtOutstandingById, getDebtorBalanceStatus, isSettlementBreakdownBalanced, splitSettlementReceived, useDbQueries, Debtor, Transaction, cleanErrorMessage } from '@/hooks/useDbQueries';
+import { calculateDebtPaymentAllocation, getDebtOutstandingById, getDebtorBalanceStatus, isSettlementBreakdownBalanced, splitSettlementReceived, calculateSettlementTotalForProfit, useDbQueries, Debtor, Transaction, cleanErrorMessage } from '@/hooks/useDbQueries';
 import { ToastNotice, useToast, type ToastType } from '@/components/toast';
 import { GoldButton } from '@/components/gold-button';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -59,6 +59,13 @@ export default function DebtorsScreen() {
   const [settleProfit, setSettleProfit] = useState('');
   const [settleChannel, setSettleChannel] = useState<string>('PHYSICAL_CASH');
   const [modalVisible, setModalVisible] = useState(false);
+  const [isSettlementKeyboardVisible, setIsSettlementKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', () => setIsSettlementKeyboardVisible(true));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setIsSettlementKeyboardVisible(false));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
   const [settlementNotice, setSettlementNotice] = useState<{ message: string; type: ToastType } | null>(null);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [showSettledList, setShowSettledList] = useState(false);
@@ -182,6 +189,24 @@ export default function DebtorsScreen() {
 
     const { suggestedProfit } = splitSettlementReceived(received, getSettlementPrincipalCap());
     setSettleProfit(suggestedProfit > 0 ? suggestedProfit.toFixed(2) : '');
+  };
+
+  const handleSettlementProfitChange = (value: string) => {
+    setSettleProfit(value);
+    if (!selectedDebtor || (value.trim() !== '' && !isValidMoneyInput(value, true))) return;
+
+    const received = Number(settleAmount);
+    if (!Number.isFinite(received) || received < 0) return;
+
+    const profit = value.trim() === '' ? 0 : Number(value);
+    const previousProfit = settleProfit.trim() === '' ? 0 : Number(settleProfit);
+    const nextTotal = calculateSettlementTotalForProfit(
+      received,
+      getSettlementPrincipalCap(),
+      profit,
+      previousProfit,
+    );
+    setSettleAmount(nextTotal.toFixed(2));
   };
 
   const handleQuickFullSettle = async (debtor: Debtor) => {
@@ -338,7 +363,7 @@ export default function DebtorsScreen() {
     // totals silently diverge. A zero-principal profit-only entry remains valid.
     if (!isSettlementBreakdownBalanced(received, amount, profit)) {
       setSettlementNotice({
-        message: `Total received (₱${received.toFixed(2)}) must equal principal (₱${amount.toFixed(2)}) plus extra profit (₱${profit.toFixed(2)}). Keep the suggested profit or adjust the received amount.`,
+        message: `Total received (₱${received.toFixed(2)}) must equal debt balance paid (₱${amount.toFixed(2)}) plus extra profit (₱${profit.toFixed(2)}). Keep the suggested profit or adjust the received amount.`,
         type: 'error',
       });
       return;
@@ -1265,7 +1290,14 @@ export default function DebtorsScreen() {
           animationType="slide"
           transparent={true}
           visible={modalVisible}
-          onRequestClose={() => setModalVisible(false)}
+          onRequestClose={() => {
+            // Android back dismisses the keyboard first; keep the settlement modal mounted.
+            if (isSettlementKeyboardVisible) {
+              Keyboard.dismiss();
+              return;
+            }
+            setModalVisible(false);
+          }}
         >
           <KeyboardAvoidingView
             behavior={process.env.EXPO_OS === 'ios' ? 'padding' : undefined}
@@ -1341,13 +1373,13 @@ export default function DebtorsScreen() {
                 }}
                 keyboardType="decimal-pad"
                 value={settleProfit}
-                onChangeText={setSettleProfit}
+                onChangeText={handleSettlementProfitChange}
                 placeholder="0.00"
                 placeholderTextColor={C.text3}
                 editable={!settleMutation.isPending}
               />
               <Text style={{ color: C.text3, fontSize: 11, lineHeight: 17, marginTop: -8, marginBottom: 14 }}>
-                Suggested automatically when the amount exceeds the selected outstanding principal. You can edit it or record profit only. Extra profit never reduces principal.
+                Suggested automatically when the amount exceeds the selected outstanding debt balance. You can edit it or record profit only. Extra profit never reduces principal.
               </Text>
 
               <View style={{ backgroundColor: C.bg, borderRadius: ledgerRadius.card, borderWidth: 1, borderColor: C.border, padding: ledgerSpacing.md, marginBottom: ledgerSpacing.lg }}>
@@ -1357,7 +1389,7 @@ export default function DebtorsScreen() {
                   const profit = settleProfit.trim() === '' ? preview.suggestedProfit : Number(settleProfit);
                   return <>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 7 }}>
-                      <Text style={{ color: C.text3, fontSize: 12 }}>Principal applied</Text>
+                      <Text style={{ color: C.text3, fontSize: 12 }}>Debt balance applied</Text>
                       <Text style={{ color: C.text1, fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] }}>₱{preview.principal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
                     </View>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 9 }}>

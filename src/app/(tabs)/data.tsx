@@ -18,8 +18,8 @@ import {
   Upload,
   X
 } from 'lucide-react-native';
-import React, { useState, useMemo } from 'react';
-import { Alert, KeyboardAvoidingView, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Alert, Keyboard, KeyboardAvoidingView, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ledgerColors as C } from '@/theme/ledger';
 import { useScreenFocus } from '@/hooks/useScreenFocus';
@@ -148,6 +148,13 @@ export default function DataScreen() {
   const [selectedWallet, setSelectedWallet] = useState<{ channel: string; balance: number } | null>(null);
   const [newBalance, setNewBalance] = useState('');
   const [editModalVisible, setEditModalVisible] = useState(false);
+  const [isEditKeyboardVisible, setIsEditKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', () => setIsEditKeyboardVisible(true));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setIsEditKeyboardVisible(false));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
   const [isExporting, setIsExporting] = useState(false);
   const [isBackupExporting, setIsBackupExporting] = useState(false);
   const [restoreModalVisible, setRestoreModalVisible] = useState(false);
@@ -1304,7 +1311,14 @@ export default function DataScreen() {
           animationType="slide"
           transparent={true}
           visible={editModalVisible}
-          onRequestClose={() => setEditModalVisible(false)}
+          onRequestClose={() => {
+            // Android back first dismisses the IME; only a second back closes the modal.
+            if (isEditKeyboardVisible) {
+              Keyboard.dismiss();
+              return;
+            }
+            setEditModalVisible(false);
+          }}
         >
           <KeyboardAvoidingView
             behavior='padding'

@@ -62,22 +62,17 @@ adb shell monkey -p com.draizen.TrackApp 1 >/dev/null 2>&1 || true
 sleep 8
 adb shell pidof com.draizen.TrackApp > "$DIAGNOSTICS_DIR"/app-pid.txt 2>&1 || true
 
-# Maestro may schedule multiple flow files concurrently. These flows both
-# launch/reset the same app and therefore must run one at a time on this
-# single emulator. Keep separate JUnit reports so failures are attributable.
+# One comprehensive flow covers dashboard, settings/wallet navigation,
+# and the full debt/payment lifecycle. Avoid a second overlapping smoke run.
 set +e
-echo "Running baseline Android smoke flow..."
-maestro test --format junit --output "$RESULT_DIR/smoke-junit.xml" .maestro/smoke.yaml
-SMOKE_EXIT_CODE=$?
-
-echo "Running financial lifecycle flow after smoke flow has fully exited..."
+echo "Running comprehensive Android financial lifecycle flow..."
 maestro test --format junit --output "$RESULT_DIR/financial-lifecycle-junit.xml" .maestro/financial-lifecycle.yaml
 LIFECYCLE_EXIT_CODE=$?
 set -e
 
-printf 'smoke=%s\nfinancial-lifecycle=%s\n' "$SMOKE_EXIT_CODE" "$LIFECYCLE_EXIT_CODE" > "$RESULT_DIR/summary.txt"
-if [ "$SMOKE_EXIT_CODE" -ne 0 ] || [ "$LIFECYCLE_EXIT_CODE" -ne 0 ]; then
-  echo "Android Maestro regression suite failed (smoke=$SMOKE_EXIT_CODE, financial-lifecycle=$LIFECYCLE_EXIT_CODE)."
+printf 'financial-lifecycle=%s\\n' "$LIFECYCLE_EXIT_CODE" > "$RESULT_DIR/summary.txt"
+if [ "$LIFECYCLE_EXIT_CODE" -ne 0 ]; then
+  echo "Android Maestro regression suite failed (financial-lifecycle=$LIFECYCLE_EXIT_CODE)."
   echo "1" > "$DIAGNOSTICS_DIR/maestro-exit-code.txt"
   exit 1
 fi
