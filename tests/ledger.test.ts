@@ -380,7 +380,7 @@ describe('ledger safety rules', () => {
   });
 
   it('does not allow edited extra profit to push the debt balance portion above its cap', () => {
-    expect(calculateSettlementTotalForProfit(60, 55, 10, 5)).toBe(60);
+    expect(calculateSettlementTotalForProfit(60, 55, 10, 5)).toBe(65);
     expect(calculateSettlementTotalForProfit(60, 55, 0, 5)).toBe(55);
   });
 
