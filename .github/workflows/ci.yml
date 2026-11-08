@@ -3,12 +3,10 @@ name: TrackApp CI
 on:
   pull_request:
     branches: [main]
+  # Feature branches are validated by pull_request only. This avoids running
+  # the same full CI suite once for push and again for the PR merge ref.
   push:
-    branches:
-      - main
-      - 'fix/**'
-      - 'feature/**'
-      - 'perf/**'
+    branches: [main]
 
 permissions:
   contents: read
