@@ -35,84 +35,100 @@ function inferCustomerForPayment(
   return candidates.length === 1 ? candidates[0] : null;
 }
 
-async function repairBrokenDebtPayments(db: SQLite.SQLiteDatabase) {
-  const alreadyRepaired = await db.getFirstAsync<{ value: string }>(
-    'SELECT value FROM settings WHERE key = ?',
-    [DEBT_PAYMENT_REPAIR_KEY]
-  );
-
-  if (alreadyRepaired?.value === 'done') {
-    return;
+async function addColumnIfMissing(
+  db: SQLite.SQLiteDatabase,
+  table: 'transactions' | 'customers',
+  column: string,
+  definition: string
+) {
+  const columns = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`);
+  if (!columns.some((item) => item.name === column)) {
+    await db.execAsync(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
+}
 
-  const transactions = await db.getAllAsync<RepairTransactionRow>(`
-    SELECT id, type, amount, fee, customer_id, is_debt, deduct_fee, created_at
-    FROM transactions
-    ORDER BY datetime(created_at) ASC, id ASC
-  `);
+async function repairBrokenDebtPayments(db: SQLite.SQLiteDatabase) {
+  // Keep the data changes and the completion marker in one transaction. If the
+  // app is interrupted, the repair is rolled back and can safely run again.
+  await db.withTransactionAsync(async () => {
+    const alreadyRepaired = await db.getFirstAsync<{ value: string }>(
+      'SELECT value FROM settings WHERE key = ?',
+      [DEBT_PAYMENT_REPAIR_KEY]
+    );
 
-  const runningBalances = new Map<number, number>();
-  const repairs: { id: number; customerId: number }[] = [];
+    if (alreadyRepaired?.value === 'done') return;
 
-  for (const tx of transactions) {
-    if (tx.type === 'DEBT_PAYMENT' && tx.customer_id == null) {
-      const inferredCustomerId = inferCustomerForPayment(runningBalances, Number(tx.amount) || 0);
-      if (inferredCustomerId != null) {
-        repairs.push({ id: tx.id, customerId: inferredCustomerId });
-        tx.customer_id = inferredCustomerId;
+    const transactions = await db.getAllAsync<RepairTransactionRow>(`
+      SELECT id, type, amount, fee, customer_id, is_debt, deduct_fee, created_at
+      FROM transactions
+      ORDER BY datetime(created_at) ASC, id ASC
+    `);
+
+    const runningBalances = new Map<number, number>();
+    const repairs: { id: number; customerId: number }[] = [];
+
+    for (const tx of transactions) {
+      if (tx.type === 'DEBT_PAYMENT' && tx.customer_id == null) {
+        const inferredCustomerId = inferCustomerForPayment(runningBalances, Number(tx.amount) || 0);
+        if (inferredCustomerId != null) {
+          repairs.push({ id: tx.id, customerId: inferredCustomerId });
+          tx.customer_id = inferredCustomerId;
+        }
+      }
+
+      if (tx.customer_id != null) {
+        const nextBalance = (runningBalances.get(tx.customer_id) || 0) + getDebtDelta(tx);
+        runningBalances.set(tx.customer_id, nextBalance);
       }
     }
 
-    if (tx.customer_id != null) {
-      const nextBalance = (runningBalances.get(tx.customer_id) || 0) + getDebtDelta(tx);
-      runningBalances.set(tx.customer_id, nextBalance);
+    for (const repair of repairs) {
+      await db.runAsync(
+        'UPDATE transactions SET customer_id = ? WHERE id = ?',
+        [repair.customerId, repair.id]
+      );
     }
-  }
 
-  for (const repair of repairs) {
     await db.runAsync(
-      'UPDATE transactions SET customer_id = ? WHERE id = ?',
-      [repair.customerId, repair.id]
+      'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
+      [DEBT_PAYMENT_REPAIR_KEY, 'done']
     );
-  }
-
-  await db.runAsync(
-    'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
-    [DEBT_PAYMENT_REPAIR_KEY, 'done']
-  );
+  });
 }
 
 async function repairDebtPaymentFeeWalletCredits(db: SQLite.SQLiteDatabase) {
-  const alreadyRepaired = await db.getFirstAsync<{ value: string }>(
-    'SELECT value FROM settings WHERE key = ?',
-    [DEBT_PAYMENT_FEE_WALLET_REPAIR_KEY]
-  );
+  // Wallet credits and the marker must commit together. This prevents a crash
+  // between the balance update and marker write from crediting fees twice.
+  await db.withTransactionAsync(async () => {
+    const alreadyRepaired = await db.getFirstAsync<{ value: string }>(
+      'SELECT value FROM settings WHERE key = ?',
+      [DEBT_PAYMENT_FEE_WALLET_REPAIR_KEY]
+    );
 
-  if (alreadyRepaired?.value === 'done') {
-    return;
-  }
+    if (alreadyRepaired?.value === 'done') return;
 
-  const feeCredits = await db.getAllAsync<{ channel: string; total_fee: number }>(`
-    SELECT channel, COALESCE(SUM(fee), 0) AS total_fee
-    FROM transactions
-    WHERE type = 'DEBT_PAYMENT' AND fee > 0
-    GROUP BY channel
-  `);
+    const feeCredits = await db.getAllAsync<{ channel: string; total_fee: number }>(`
+      SELECT channel, COALESCE(SUM(fee), 0) AS total_fee
+      FROM transactions
+      WHERE type = 'DEBT_PAYMENT' AND fee > 0
+      GROUP BY channel
+    `);
 
-  for (const credit of feeCredits) {
-    const totalFee = Number(credit.total_fee) || 0;
-    if (totalFee > 0) {
-      await db.runAsync(
-        'UPDATE wallets SET balance = balance + ? WHERE channel = ?',
-        [totalFee, credit.channel]
-      );
+    for (const credit of feeCredits) {
+      const totalFee = Number(credit.total_fee) || 0;
+      if (totalFee > 0) {
+        await db.runAsync(
+          'UPDATE wallets SET balance = balance + ? WHERE channel = ?',
+          [totalFee, credit.channel]
+        );
+      }
     }
-  }
 
-  await db.runAsync(
-    'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
-    [DEBT_PAYMENT_FEE_WALLET_REPAIR_KEY, 'done']
-  );
+    await db.runAsync(
+      'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
+      [DEBT_PAYMENT_FEE_WALLET_REPAIR_KEY, 'done']
+    );
+  });
 }
 
 export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
@@ -161,24 +177,13 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
     );
   `);
 
-  // Run dynamic migration block to alter existing databases cleanly
-  try {
-    await db.execAsync('ALTER TABLE transactions ADD COLUMN deduct_fee INTEGER NOT NULL DEFAULT 0;');
-  } catch {
-    // Column already exists
-  }
-  try {
-    await db.execAsync('ALTER TABLE transactions ADD COLUMN target_debt_id INTEGER;');
-  } catch { }
-  try {
-    await db.execAsync("ALTER TABLE customers ADD COLUMN notes TEXT;");
-  } catch { }
-  try {
-    await db.execAsync("ALTER TABLE customers ADD COLUMN follow_up_status TEXT NOT NULL DEFAULT 'active';");
-  } catch { }
-  try {
-    await db.execAsync("ALTER TABLE customers ADD COLUMN last_reminded_at TEXT;");
-  } catch { }
+  // Inspect the schema before altering it. This ignores only the expected
+  // "column already exists" case and lets genuine migration failures surface.
+  await addColumnIfMissing(db, 'transactions', 'deduct_fee', 'INTEGER NOT NULL DEFAULT 0');
+  await addColumnIfMissing(db, 'transactions', 'target_debt_id', 'INTEGER');
+  await addColumnIfMissing(db, 'customers', 'notes', 'TEXT');
+  await addColumnIfMissing(db, 'customers', 'follow_up_status', "TEXT NOT NULL DEFAULT 'active'");
+  await addColumnIfMissing(db, 'customers', 'last_reminded_at', 'TEXT');
 
   // Match the ledger's hot paths: history, debtor allocation, selected-debt
   // safeguards, and dashboard date-range queries.
