@@ -19,7 +19,7 @@ import {
   X
 } from 'lucide-react-native';
 import React, { useState, useMemo, useEffect } from 'react';
-import { Alert, Keyboard, KeyboardAvoidingView, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Keyboard, KeyboardAvoidingView, Modal, ScrollView, Text, TextInput, TouchableOpacity, View, Platform, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ledgerColors as C } from '@/theme/ledger';
 import { useScreenFocus } from '@/hooks/useScreenFocus';
@@ -92,6 +92,8 @@ function csvRow(...values: (string | number | null | undefined)[]): string {
 export default function DataScreen() {
   const { showToast } = useToast();
   const isScreenFocused = useScreenFocus();
+  const { width: viewportWidth } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && viewportWidth >= 1024;
   const {
     useDashboardData,
     useUpdateWalletBalance,
@@ -773,7 +775,7 @@ export default function DataScreen() {
       <ScrollView
         style={{ flex: 1 }}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 88 }}
+        contentContainerStyle={{ width: '100%', maxWidth: isDesktopWeb ? 1120 : undefined, alignSelf: 'center', paddingHorizontal: isDesktopWeb ? 32 : 16, paddingTop: isDesktopWeb ? 28 : 16, paddingBottom: isDesktopWeb ? 48 : 88 }}
       >
         {isSettingsError && (
           <TouchableOpacity onPress={() => refetchSettings()} accessibilityRole="button" accessibilityLabel="Retry loading fee settings" style={{ backgroundColor: C.dangerDim, borderRadius: 12, padding: 12, marginBottom: 12 }}>

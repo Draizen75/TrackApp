@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Text, View } from 'react-native';
+import { Platform, Text, View, useWindowDimensions } from 'react-native';
 import { ledgerColors as C } from '@/theme/ledger';
 
 type LedgerMetricCardProps = {
@@ -10,10 +10,13 @@ type LedgerMetricCardProps = {
 };
 
 export function LedgerMetricCard({ icon, label, value, color }: LedgerMetricCardProps) {
+  const { width: viewportWidth } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && viewportWidth >= 1200;
+
   return (
     <View
       style={{
-        width: '47%',
+        width: isDesktopWeb ? '23.5%' : '47%',
         flexGrow: 0,
         flexShrink: 0,
         minHeight: 78,
