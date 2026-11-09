@@ -23,7 +23,9 @@ export default function TabsLayout() {
         tabBarLabelPosition: isDesktopWeb ? 'beside-icon' : 'below-icon',
         tabBarStyle: isDesktopWeb
           ? {
-              width: 236,
+              width: 220,
+              minWidth: 220,
+              maxWidth: 220,
               backgroundColor: C.surface,
               borderRightWidth: 1,
               borderRightColor: C.border,
@@ -56,6 +58,8 @@ export default function TabsLayout() {
               shadowRadius: 8,
             },
         tabBarActiveTintColor: C.accent,
+        tabBarActiveBackgroundColor: isDesktopWeb ? 'rgba(255,209,102,0.12)' : undefined,
+        tabBarInactiveBackgroundColor: isDesktopWeb ? 'transparent' : undefined,
         tabBarInactiveTintColor: C.text3,
         tabBarLabelStyle: isDesktopWeb
           ? {
@@ -74,8 +78,9 @@ export default function TabsLayout() {
         tabBarItemStyle: isDesktopWeb
           ? {
               minHeight: 48,
-              borderRadius: 12,
+              borderRadius: 10,
               marginBottom: 6,
+              backgroundColor: 'transparent',
               paddingHorizontal: 12,
               justifyContent: 'flex-start',
             }
