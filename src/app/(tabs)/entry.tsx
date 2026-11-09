@@ -7,7 +7,7 @@ import * as Haptics from 'expo-haptics';
 import { History, Pencil, RotateCcw, Search } from 'lucide-react-native';
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
-import { Keyboard, KeyboardAvoidingView, ScrollView, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Keyboard, KeyboardAvoidingView, Platform, ScrollView, Switch, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as z from 'zod';
 import { ledgerColors as C } from '@/theme/ledger';
@@ -43,6 +43,8 @@ export default function EntryScreen() {
   const router = useRouter();
   const isScreenFocused = useScreenFocus();
   const insets = useSafeAreaInsets();
+  const { width: viewportWidth } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && viewportWidth >= 1024;
   const { showToast } = useToast();
   const { debtorId, debtorName } = useLocalSearchParams<{ debtorId?: string; debtorName?: string }>();
   const { useCustomers, useAddCustomer, useAddTransaction, useSettings, useWallets, useDebtors, useLatestRepeatableTransaction } = useDbQueries();
@@ -286,7 +288,7 @@ export default function EntryScreen() {
         <ScrollView
           style={{ flex: 1 }}
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ flexGrow: 1, paddingTop: 16, paddingBottom: 16 }}
+          contentContainerStyle={{ flexGrow: 1, paddingTop: isDesktopWeb ? 28 : 16, paddingBottom: 16, alignItems: isDesktopWeb ? 'center' : undefined }}
         >
           {(isCustomersError || isSettingsError || isWalletsError) && (
             <View style={{ marginHorizontal: 24, marginBottom: 12, padding: 12, borderRadius: 12, backgroundColor: C.dangerDim, gap: 8 }}>
@@ -301,10 +303,13 @@ export default function EntryScreen() {
           <View
             style={{
               flex: 1,
-              borderTopLeftRadius: 24,
+              width: '100%',
+              maxWidth: isDesktopWeb ? 1120 : undefined,
+              alignSelf: 'center',
+              borderTopLeftRadius: isDesktopWeb ? 20 : 24,
               borderTopRightRadius: 24,
-              paddingHorizontal: 20,
-              paddingTop: 24,
+              paddingHorizontal: isDesktopWeb ? 32 : 20,
+              paddingTop: isDesktopWeb ? 32 : 24,
               borderWidth: 1,
               borderColor: C.border,
               backgroundColor: C.surface,
