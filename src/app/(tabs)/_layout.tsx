@@ -9,8 +9,8 @@ import {
   PanelLeftOpen,
   WalletCards,
 } from 'lucide-react-native';
-import { useState } from 'react';
-import { Platform, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Keyboard, Platform, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ledgerColors as C } from '@/theme/ledger';
 
@@ -18,7 +18,7 @@ export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isDesktopWeb = Platform.OS === 'web' && width >= 1024;
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);\n  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);\n\n  useEffect(() => {\n    const showSubscription = Keyboard.addListener('keyboardDidShow', () => setIsKeyboardVisible(true));\n    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => setIsKeyboardVisible(false));\n    return () => {\n      showSubscription.remove();\n      hideSubscription.remove();\n    };\n  }, []);
   const sidebarWidth = isSidebarCollapsed ? 76 : 224;
 
   return (
@@ -63,7 +63,7 @@ export default function TabsLayout() {
             </TouchableOpacity>
           );
         });
-        return isDesktopWeb ? (
+        if (!isDesktopWeb && isKeyboardVisible) return null;\n        return isDesktopWeb ? (
         <View style={{
           width: sidebarWidth,
           minWidth: sidebarWidth,
