@@ -1,7 +1,8 @@
 const MINIMUM_BOTTOM_INSET = 8;
-const TAB_BAR_CONTENT_HEIGHT = 62;
 
 export function getEntryActionBarBottomPadding(bottomInset: number, isKeyboardVisible: boolean) {
-  const safeBottomInset = Math.max(bottomInset, MINIMUM_BOTTOM_INSET);
-  return safeBottomInset + (isKeyboardVisible ? 0 : TAB_BAR_CONTENT_HEIGHT);
+  // The tab bar is rendered by the navigator and already occupies its own
+  // screen edge. Do not reserve its height a second time inside this action bar.
+  // Keep only the device safe-area inset when the keyboard is closed.
+  return isKeyboardVisible ? 8 : Math.max(bottomInset, MINIMUM_BOTTOM_INSET);
 }
