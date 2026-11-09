@@ -309,8 +309,8 @@ export default function EntryScreen() {
               alignSelf: 'center',
               borderTopLeftRadius: isDesktopWeb ? 20 : 24,
               borderTopRightRadius: 24,
-              paddingHorizontal: isDesktopWeb ? 32 : 20,
-              paddingTop: isDesktopWeb ? 32 : 24,
+              paddingHorizontal: isDesktopWeb ? 32 : (isCompactMobile ? 14 : 20),
+              paddingTop: isDesktopWeb ? 32 : 18,
               borderWidth: 1,
               borderColor: C.border,
               backgroundColor: C.surface,
@@ -360,7 +360,8 @@ export default function EntryScreen() {
                             }
                           }}
                           style={{
-                            flex: 1,
+                            flex: isCompactMobile ? undefined : 1,
+                            width: isCompactMobile ? '48%' : undefined,
                             paddingVertical: 10,
                             borderRadius: 12,
                             alignItems: 'center',
@@ -419,7 +420,7 @@ export default function EntryScreen() {
 
               <View style={{ flex: 2 }}>
                 <View style={{ minHeight: 28, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 2 }}>
-                  <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase' }}>
+                  <Text numberOfLines={1} adjustsFontSizeToFit style={{ flexShrink: 1, color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: isCompactMobile ? 0.5 : 1.1, textTransform: 'uppercase' }}>
                     Fee · {isFeeOverride ? 'Custom' : 'Suggested'}
                   </Text>
                   <TouchableOpacity
@@ -500,7 +501,7 @@ export default function EntryScreen() {
                               onChange(ch);
                             }}
                             style={{
-                              minWidth: '30%',
+                              minWidth: isCompactMobile ? '46%' : '30%',
                               flexGrow: 1,
                               paddingVertical: 12,
                               paddingHorizontal: 8,
@@ -728,8 +729,8 @@ export default function EntryScreen() {
           </View>
         </ScrollView>
         <View style={{
-          paddingHorizontal: 20,
-          paddingTop: 10,
+          paddingHorizontal: isCompactMobile ? 14 : 20,
+          paddingTop: 8,
           paddingBottom: getEntryActionBarBottomPadding(insets.bottom, isKeyboardVisible),
           borderTopWidth: 1,
           borderTopColor: C.border,
