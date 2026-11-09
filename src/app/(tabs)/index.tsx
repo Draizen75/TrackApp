@@ -239,8 +239,8 @@ export default function DashboardScreen() {
             marginBottom: 16,
           }}
         >
-          <View style={{ alignItems: 'center', marginBottom: 22, paddingHorizontal: 4 }}>
-            <Text style={{ color: C.text2, fontSize: 12, letterSpacing: 2.1, textTransform: 'uppercase', fontWeight: '800', marginBottom: 8, textAlign: 'center' }}>
+          <View style={{ alignItems: isDesktopWeb ? 'flex-start' : 'center', marginBottom: 22, paddingHorizontal: 4 }}>
+            <Text style={{ color: C.text2, fontSize: 12, letterSpacing: 2.1, textTransform: 'uppercase', fontWeight: '800', marginBottom: 8, textAlign: isDesktopWeb ? 'left' : 'center' }}>
               Earnings Collected
             </Text>
             <Text style={{
@@ -249,7 +249,7 @@ export default function DashboardScreen() {
               letterSpacing: -0.8,
               color: data.earningsPaid >= 0 ? C.accent : C.danger,
               marginBottom: 6,
-              textAlign: 'center',
+              textAlign: isDesktopWeb ? 'left' : 'center',
               includeFontPadding: false,
             }}>
               ₱{data.netProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -347,7 +347,7 @@ export default function DashboardScreen() {
           {/* Compact summary rows keep the earnings hierarchy calm and scannable. */}
           <View style={{ flexDirection: isDesktopWeb ? 'row' : 'column', flexWrap: isDesktopWeb ? 'wrap' : 'nowrap', gap: isDesktopWeb ? 12 : 0 }}>
             {/* Today */}
-            <View style={{ ...SUMMARY_ROW_STYLE, width: isDesktopWeb ? '32%' : '100%', borderBottomWidth: isDesktopWeb ? 0 : 1, borderRightWidth: isDesktopWeb ? 1 : 0, borderRightColor: C.border, paddingHorizontal: isDesktopWeb ? 12 : 0 }}>
+            <View style={{ ...SUMMARY_ROW_STYLE, width: isDesktopWeb ? '31%' : '100%', borderBottomWidth: isDesktopWeb ? 0 : 1, borderRightWidth: isDesktopWeb ? 1 : 0, borderRightColor: C.border, paddingHorizontal: isDesktopWeb ? 12 : 0 }}>
               <View>
                 <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>Today</Text>
                 <Text style={{ color: C.text1, fontSize: 16, fontWeight: '800', marginTop: 2 }}>
@@ -381,7 +381,7 @@ export default function DashboardScreen() {
               </View>
             </View>
 
-            <View style={{ ...SUMMARY_ROW_STYLE, width: isDesktopWeb ? '32%' : '100%', borderBottomWidth: 0, borderRightWidth: 0, paddingHorizontal: isDesktopWeb ? 12 : 0 }}>
+            <View style={{ ...SUMMARY_ROW_STYLE, width: isDesktopWeb ? '31%' : '100%', borderBottomWidth: 0, borderRightWidth: 0, paddingHorizontal: isDesktopWeb ? 12 : 0 }}>
               <View>
                 <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>Month to Date</Text>
                 <Text style={{ color: C.accent, fontSize: 16, fontWeight: '800', marginTop: 2 }}>
