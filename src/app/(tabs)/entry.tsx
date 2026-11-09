@@ -8,7 +8,7 @@ import { History, Pencil, RotateCcw, Search } from 'lucide-react-native';
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { Keyboard, KeyboardAvoidingView, Platform, ScrollView, Switch, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import * as z from 'zod';
 import { ledgerColors as C } from '@/theme/ledger';
 import { calculateSuggestedEntryFee, getEntryPreviewRows } from '@/utils/entry-preview';
@@ -41,7 +41,6 @@ type EntryFormValues = z.infer<typeof entrySchema>;
 export default function EntryScreen() {
   const router = useRouter();
   const isScreenFocused = useScreenFocus();
-  const insets = useSafeAreaInsets();
   const { width: viewportWidth } = useWindowDimensions();
   const isDesktopWeb = Platform.OS === 'web' && viewportWidth >= 1024;
   const { showToast } = useToast();
@@ -71,22 +70,9 @@ export default function EntryScreen() {
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [isFeeOverride, setIsFeeOverride] = useState(false);
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
-
-  useEffect(() => {
-    const showSubscription = Keyboard.addListener('keyboardDidShow', () => setIsKeyboardVisible(true));
-    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => setIsKeyboardVisible(false));
-
-    return () => {
-      showSubscription.remove();
-      hideSubscription.remove();
-    };
-  }, []);
-
   useFocusEffect(
     useCallback(() => () => {
       Keyboard.dismiss();
-      setIsKeyboardVisible(false);
     }, [])
   );
 
