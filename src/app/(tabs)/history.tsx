@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, Modal, Switch, KeyboardAvoidingView, FlatList, ListRenderItem } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, Modal, Switch, KeyboardAvoidingView, FlatList, ListRenderItem, Platform, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { getDebtOutstandingById, useDbQueries, Transaction, cleanErrorMessage } from '@/hooks/useDbQueries';
@@ -181,6 +181,8 @@ const TransactionCard = React.memo(function TransactionCard({
 export default function HistoryScreen() {
   const { showToast } = useToast();
   const isScreenFocused = useScreenFocus();
+  const { width: viewportWidth } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && viewportWidth >= 1024;
   const router = useRouter();
   const { editTxId } = useLocalSearchParams<{ editTxId?: string }>();
   const { 
@@ -428,7 +430,7 @@ export default function HistoryScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}>
       {/* Filters and List */}
-      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
+      <View style={{ flex: 1, width: '100%', maxWidth: isDesktopWeb ? 1320 : undefined, alignSelf: 'center', paddingHorizontal: isDesktopWeb ? 32 : 16, paddingTop: isDesktopWeb ? 28 : 16 }}>
         
         {/* Search Box */}
         <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 16 }}>
