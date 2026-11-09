@@ -12,7 +12,6 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as z from 'zod';
 import { ledgerColors as C } from '@/theme/ledger';
 import { calculateSuggestedEntryFee, getEntryPreviewRows } from '@/utils/entry-preview';
-import { getEntryActionBarBottomOffset } from '@/utils/entry-layout';
 import { useScreenFocus } from '@/hooks/useScreenFocus';
 import { isValidMoneyInput } from '@/utils/strict-money';
 
@@ -288,7 +287,7 @@ export default function EntryScreen() {
         <ScrollView
           style={{ flex: 1 }}
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ flexGrow: 1, paddingTop: isDesktopWeb ? 28 : 16, paddingBottom: 112, alignItems: isDesktopWeb ? 'center' : undefined }}
+          contentContainerStyle={{ flexGrow: 1, paddingTop: isDesktopWeb ? 28 : 16, paddingBottom: 16, alignItems: isDesktopWeb ? 'center' : undefined }}
         >
           {(isCustomersError || isSettingsError || isWalletsError) && (
             <View style={{ marginHorizontal: 24, marginBottom: 12, padding: 12, borderRadius: 12, backgroundColor: C.dangerDim, gap: 8 }}>
@@ -727,10 +726,6 @@ export default function EntryScreen() {
           </View>
         </ScrollView>
         <View style={{
-          position: 'absolute',
-          left: 0,
-          right: 0,
-          bottom: getEntryActionBarBottomOffset(insets.bottom, isKeyboardVisible),
           paddingHorizontal: 20,
           paddingTop: 10,
           paddingBottom: 8,
