@@ -1,0 +1,61 @@
+name: TrackApp UI screenshots
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'app.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'scripts/capture-screenshots.*'
+      - '.github/workflows/ui-screenshots.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install app dependencies
+        run: npm ci
+
+      - name: Install Playwright and Chromium
+        run: |
+          npm install --no-save --package-lock=false playwright
+          npx playwright install --with-deps chromium
+
+      - name: Start TrackApp web
+        run: |
+          nohup npx expo start --web --port 8081 --non-interactive > /tmp/trackapp-expo.log 2>&1 &
+          for i in {1..120}; do
+            if curl --fail --silent http://127.0.0.1:8081 > /dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat /tmp/trackapp-expo.log
+          exit 1
+
+      - name: Capture desktop and mobile layouts
+        run: node scripts/capture-screenshots.cjs
+
+      - name: Upload screenshot artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trackapp-ui-screenshots
+          path: artifacts/screenshots/
+          if-no-files-found: warn
+          retention-days: 14
