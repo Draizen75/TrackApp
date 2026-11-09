@@ -25,7 +25,7 @@ import {
   X,
 } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
-import { Alert, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Modal, Platform, ScrollView, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ledgerColors as C, ledgerRadius, ledgerTypography, ledgerSpacing, ledgerElevation } from '@/theme/ledger';
 import { LedgerEmptyState, LedgerErrorState, LedgerLoadingState } from '@/components/ledger-state';
@@ -35,6 +35,8 @@ import { LedgerMetricCard } from '@/components/ledger-metric-card';
 export default function DashboardScreen() {
   const router = useRouter();
   const isScreenFocused = useScreenFocus();
+  const { width: viewportWidth } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && viewportWidth >= 1024;
 
   // Interactive Chart & Earnings Summary State
   const [timeframe, setTimeframe] = useState<'7d' | '14d' | '30d' | 'custom'>('7d');
@@ -213,9 +215,9 @@ export default function DashboardScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}>
       <ScrollView
-        style={{ flex: 1, paddingHorizontal: 16 }}
+        style={{ flex: 1, width: '100%', maxWidth: isDesktopWeb ? 1440 : undefined, alignSelf: 'center', paddingHorizontal: isDesktopWeb ? 32 : 16 }}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 96 }}
+        contentContainerStyle={{ paddingBottom: isDesktopWeb ? 48 : 96, paddingTop: isDesktopWeb ? 24 : 0 }}
       >
 
         {isError && (
@@ -229,8 +231,8 @@ export default function DashboardScreen() {
           colors={['#282315', '#11141f']}
           style={{
             borderRadius: ledgerRadius.card,
-            paddingHorizontal: 24,
-            paddingVertical: 26,
+            paddingHorizontal: isDesktopWeb ? 36 : 24,
+            paddingVertical: isDesktopWeb ? 32 : 26,
             borderWidth: 1,
             borderColor: C.accent,
             ...ledgerElevation.accent,
