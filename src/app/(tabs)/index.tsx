@@ -25,7 +25,7 @@ import {
   X,
 } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
-import { Alert, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Modal, Platform, ScrollView, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ledgerColors as C, ledgerRadius, ledgerTypography, ledgerSpacing, ledgerElevation } from '@/theme/ledger';
 import { LedgerEmptyState, LedgerErrorState, LedgerLoadingState } from '@/components/ledger-state';
@@ -35,6 +35,8 @@ import { LedgerMetricCard } from '@/components/ledger-metric-card';
 export default function DashboardScreen() {
   const router = useRouter();
   const isScreenFocused = useScreenFocus();
+  const { width: viewportWidth } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && viewportWidth >= 1024;
 
   // Interactive Chart & Earnings Summary State
   const [timeframe, setTimeframe] = useState<'7d' | '14d' | '30d' | 'custom'>('7d');
@@ -213,9 +215,9 @@ export default function DashboardScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}>
       <ScrollView
-        style={{ flex: 1, paddingHorizontal: 16 }}
+        style={{ flex: 1, width: '100%', maxWidth: isDesktopWeb ? 1440 : undefined, alignSelf: 'center', paddingHorizontal: isDesktopWeb ? 32 : 16 }}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 96 }}
+        contentContainerStyle={{ paddingBottom: isDesktopWeb ? 48 : 96, paddingTop: isDesktopWeb ? 24 : 0 }}
       >
 
         {isError && (
@@ -229,16 +231,16 @@ export default function DashboardScreen() {
           colors={['#282315', '#11141f']}
           style={{
             borderRadius: ledgerRadius.card,
-            paddingHorizontal: 24,
-            paddingVertical: 26,
+            paddingHorizontal: isDesktopWeb ? 28 : 24,
+            paddingVertical: isDesktopWeb ? 22 : 26,
             borderWidth: 1,
             borderColor: C.accent,
             ...ledgerElevation.accent,
             marginBottom: 16,
           }}
         >
-          <View style={{ alignItems: 'center', marginBottom: 22, paddingHorizontal: 4 }}>
-            <Text style={{ color: C.text2, fontSize: 12, letterSpacing: 2.1, textTransform: 'uppercase', fontWeight: '800', marginBottom: 8, textAlign: 'center' }}>
+          <View style={{ alignItems: isDesktopWeb ? 'flex-start' : 'center', marginBottom: 22, paddingHorizontal: 4 }}>
+            <Text style={{ color: C.text2, fontSize: 12, letterSpacing: 2.1, textTransform: 'uppercase', fontWeight: '800', marginBottom: 8, textAlign: isDesktopWeb ? 'left' : 'center' }}>
               Earnings Collected
             </Text>
             <Text style={{
@@ -247,7 +249,7 @@ export default function DashboardScreen() {
               letterSpacing: -0.8,
               color: data.earningsPaid >= 0 ? C.accent : C.danger,
               marginBottom: 6,
-              textAlign: 'center',
+              textAlign: isDesktopWeb ? 'left' : 'center',
               includeFontPadding: false,
             }}>
               ₱{data.netProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -290,7 +292,7 @@ export default function DashboardScreen() {
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ gap: 10, paddingRight: 8 }}
+            contentContainerStyle={{ gap: 10, paddingRight: 8, width: isDesktopWeb ? '100%' : undefined, flexGrow: isDesktopWeb ? 1 : 0 }}
           >
             {data.wallets.length === 0 ? (
               <LedgerEmptyState title="No wallets configured" description="Add a wallet in Settings to start tracking your counter float." />
@@ -301,8 +303,11 @@ export default function DashboardScreen() {
                   key={wallet.channel}
                   colors={theme.colors as [string, string]}
                   style={{
-                    width: 148,
-                    height: 100,
+                    width: isDesktopWeb ? '18%' : 148,
+                    minWidth: isDesktopWeb ? 130 : 148,
+                    flexGrow: isDesktopWeb ? 1 : 0,
+                    flexShrink: isDesktopWeb ? 1 : 0,
+                    height: isDesktopWeb ? 116 : 100,
                     borderRadius: 16,
                     padding: 14,
                     justifyContent: 'space-between',
@@ -340,9 +345,9 @@ export default function DashboardScreen() {
           </View>
 
           {/* Compact summary rows keep the earnings hierarchy calm and scannable. */}
-          <View>
+          <View style={{ flexDirection: isDesktopWeb ? 'row' : 'column', flexWrap: isDesktopWeb ? 'wrap' : 'nowrap', gap: isDesktopWeb ? 12 : 0 }}>
             {/* Today */}
-            <View style={SUMMARY_ROW_STYLE}>
+            <View style={{ ...SUMMARY_ROW_STYLE, width: isDesktopWeb ? '31%' : '100%', borderBottomWidth: isDesktopWeb ? 0 : 1, borderRightWidth: isDesktopWeb ? 1 : 0, borderRightColor: C.border, paddingHorizontal: isDesktopWeb ? 12 : 0 }}>
               <View>
                 <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>Today</Text>
                 <Text style={{ color: C.text1, fontSize: 16, fontWeight: '800', marginTop: 2 }}>
@@ -376,7 +381,7 @@ export default function DashboardScreen() {
               </View>
             </View>
 
-            <View style={{ ...SUMMARY_ROW_STYLE, borderBottomWidth: 0 }}>
+            <View style={{ ...SUMMARY_ROW_STYLE, width: isDesktopWeb ? '31%' : '100%', borderBottomWidth: 0, borderRightWidth: 0, paddingHorizontal: isDesktopWeb ? 12 : 0 }}>
               <View>
                 <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>Month to Date</Text>
                 <Text style={{ color: C.accent, fontSize: 16, fontWeight: '800', marginTop: 2 }}>

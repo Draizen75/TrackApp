@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Modal, Keyboard, KeyboardAvoidingView, FlatList, SectionList } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Modal, Keyboard, KeyboardAvoidingView, FlatList, SectionList, Platform, useWindowDimensions } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { calculateDebtPaymentAllocation, getDebtOutstandingById, getDebtorBalanceStatus, isSettlementBreakdownBalanced, splitSettlementReceived, calculateSettlementTotalForProfit, useDbQueries, Debtor, Transaction, cleanErrorMessage } from '@/hooks/useDbQueries';
 import { ToastNotice, useToast, type ToastType } from '@/components/toast';
@@ -33,6 +33,8 @@ export default function DebtorsScreen() {
   const { showToast } = useToast();
   const isScreenFocused = useScreenFocus();
   const insets = useSafeAreaInsets();
+  const { width: viewportWidth } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && viewportWidth >= 1024;
   const router = useRouter();
   const { settleDebtId } = useLocalSearchParams<{ settleDebtId?: string }>();
   const { useDebtors, useDebtLedgerSummary, useDebtTransactionsForCustomer, useDebtTransactionById, useSettleDebt, useWallets, useDeleteCustomer, useDeleteTransaction, useUpdateCustomerMeta } = useDbQueries();
@@ -789,8 +791,8 @@ export default function DebtorsScreen() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}>
         <SectionList<Debtor, { key: string; kind: 'active' | 'credit' | 'settled'; data: Debtor[] }>
-          style={{ flex: 1, paddingHorizontal: 16 }}
-          contentContainerStyle={{ paddingBottom: 88 }}
+          style={{ flex: 1, width: '100%', maxWidth: isDesktopWeb ? 1240 : undefined, alignSelf: 'center', paddingHorizontal: isDesktopWeb ? 32 : 16 }}
+          contentContainerStyle={{ paddingBottom: isDesktopWeb ? 48 : 88, paddingTop: isDesktopWeb ? 24 : 0 }}
           sections={[
             { key: 'active', kind: 'active', data: activeDebtors },
             ...(creditDebtors.length > 0
