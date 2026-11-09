@@ -86,12 +86,7 @@ const TransactionCard = React.memo(function TransactionCard({
     : 'N/A';
 
   return (
-    <TouchableOpacity
-      onPress={() => onViewDetails(transaction)}
-      activeOpacity={0.8}
-      accessibilityRole="button"
-      accessibilityLabel={`View details for transaction ${transaction.id}`}
-      accessibilityHint="Opens the transaction receipt"
+    <View
       style={{
         borderRadius: ledgerRadius.card,
         padding: 14,
@@ -101,83 +96,99 @@ const TransactionCard = React.memo(function TransactionCard({
         marginBottom: 12,
         flexDirection: 'row',
         justifyContent: 'space-between',
-        alignItems: 'center'
+        alignItems: 'center',
       }}
     >
-      <View style={{ flex: 1, marginRight: 16 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-          <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: typeDetails.bg, borderWidth: 1, borderColor: typeDetails.border }}>
-            <Text style={{ fontSize: 10, fontWeight: '900', textTransform: 'uppercase', color: typeDetails.text }}>
-              {typeDetails.label}
-            </Text>
-          </View>
-          {transaction.is_debt === 1 && (
-            <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: C.dangerDim, borderWidth: 1, borderColor: 'rgba(220,107,90,0.2)' }}>
-              <Text style={{ fontSize: 10, fontWeight: '900', textTransform: 'uppercase', color: C.danger }}>
-                UTANG
+      <TouchableOpacity
+        onPress={() => onViewDetails(transaction)}
+        activeOpacity={0.8}
+        accessibilityRole="button"
+        accessibilityLabel={`View details for transaction ${transaction.id}`}
+        accessibilityHint="Opens the transaction receipt"
+        style={{
+          flex: 1,
+          minWidth: 0,
+          marginRight: 12,
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}
+      >
+        <View style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+            <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: typeDetails.bg, borderWidth: 1, borderColor: typeDetails.border }}>
+              <Text style={{ fontSize: 10, fontWeight: '900', textTransform: 'uppercase', color: typeDetails.text }}>
+                {typeDetails.label}
               </Text>
             </View>
+            {transaction.is_debt === 1 && (
+              <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: C.dangerDim, borderWidth: 1, borderColor: 'rgba(220,107,90,0.2)' }}>
+                <Text style={{ fontSize: 10, fontWeight: '900', textTransform: 'uppercase', color: C.danger }}>
+                  UTANG
+                </Text>
+              </View>
+            )}
+            <Text style={{ color: C.text3, fontSize: 11 }}>{formattedTime}</Text>
+          </View>
+
+          <Text style={{ color: C.text1, fontSize: 14, fontWeight: '700', marginBottom: 4 }} numberOfLines={1}>
+            {transaction.customer_name || 'Sari-Sari Anonymous'}
+          </Text>
+
+          <Text style={{ color: C.text3, fontSize: 11 }}>
+            Wallet: <Text style={{ color: C.text2, fontWeight: '600' }}>{getWalletLabel(transaction.channel)}</Text>
+          </Text>
+        </View>
+
+        <View style={{ alignItems: 'flex-end' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, marginBottom: 2 }}>
+            <Text style={{ color: C.text1, fontSize: 14, fontWeight: '900' }}>
+              ₱{transaction.amount.toFixed(2)}
+            </Text>
+            <ChevronRight size={14} color={C.text3} />
+          </View>
+          {transaction.fee > 0 && (
+            <Text style={{ color: C.accent, fontSize: 10, fontWeight: '700', marginBottom: 8 }}>
+              Fee: +₱{transaction.fee.toFixed(2)}
+            </Text>
           )}
-          <Text style={{ color: C.text3, fontSize: 11 }}>{formattedTime}</Text>
         </View>
+      </TouchableOpacity>
 
-        <Text style={{ color: C.text1, fontSize: 14, fontWeight: '700', marginBottom: 4 }} numberOfLines={1}>
-          {transaction.customer_name || 'Sari-Sari Anonymous'}
-        </Text>
-
-        <Text style={{ color: C.text3, fontSize: 11 }}>
-          Wallet: <Text style={{ color: C.text2, fontWeight: '600' }}>{getWalletLabel(transaction.channel)}</Text>
-        </Text>
-      </View>
-
-      <View style={{ alignItems: 'flex-end' }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, marginBottom: 2 }}>
-          <Text style={{ color: C.text1, fontSize: 14, fontWeight: '900' }}>
-            ₱{transaction.amount.toFixed(2)}
-          </Text>
-          <ChevronRight size={14} color={C.text3} />
-        </View>
-        {transaction.fee > 0 && (
-          <Text style={{ color: C.accent, fontSize: 10, fontWeight: '700', marginBottom: 8 }}>
-            Fee: +₱{transaction.fee.toFixed(2)}
-          </Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+        {transaction.is_debt === 1 && transaction.customer_id != null && (
+          <TouchableOpacity
+            onPress={() => onSettleDebt(transaction)}
+            accessibilityRole="button"
+            accessibilityLabel="Settle selected debt"
+            hitSlop={8}
+            style={{ width: 36, height: 40, justifyContent: 'center', alignItems: 'center' }}
+          >
+            <Coins size={14} color={C.success} />
+          </TouchableOpacity>
         )}
-        <View style={{ flexDirection: 'row', gap: 6 }}>
-          {transaction.is_debt === 1 && transaction.customer_id != null && (
-            <TouchableOpacity
-              onPress={() => onSettleDebt(transaction)}
-              accessibilityRole="button"
-              accessibilityLabel="Settle selected debt"
-              hitSlop={8}
-              style={{ width: 32, height: 32, justifyContent: 'center', alignItems: 'center' }}
-            >
-              <Coins size={14} color={C.success} />
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity
-            onPress={() => onEdit(transaction)}
-            accessibilityRole="button"
-            accessibilityLabel="Edit transaction"
-            hitSlop={8}
-            style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}
-          >
-            <Pencil size={13} color={C.accent} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => onDelete(transaction.id)}
-            accessibilityRole="button"
-            accessibilityLabel="Delete transaction"
-            hitSlop={8}
-            style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}
-          >
-            <Trash2 size={13} color={C.text3} />
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity
+          onPress={() => onEdit(transaction)}
+          accessibilityRole="button"
+          accessibilityLabel="Edit transaction"
+          hitSlop={8}
+          style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Pencil size={13} color={C.accent} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => onDelete(transaction.id)}
+          accessibilityRole="button"
+          accessibilityLabel="Delete transaction"
+          hitSlop={8}
+          style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Trash2 size={13} color={C.text3} />
+        </TouchableOpacity>
       </View>
-    </TouchableOpacity>
+    </View>
   );
 });
-
 export default function HistoryScreen() {
   const { showToast } = useToast();
   const isScreenFocused = useScreenFocus();
