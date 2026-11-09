@@ -45,7 +45,6 @@ export default function EntryScreen() {
   const insets = useSafeAreaInsets();
   const { width: viewportWidth } = useWindowDimensions();
   const isDesktopWeb = Platform.OS === 'web' && viewportWidth >= 1024;
-  const isCompactMobile = viewportWidth < 420;
   const { showToast } = useToast();
   const { debtorId, debtorName } = useLocalSearchParams<{ debtorId?: string; debtorName?: string }>();
   const { useCustomers, useAddCustomer, useAddTransaction, useSettings, useWallets, useDebtors, useLatestRepeatableTransaction } = useDbQueries();
@@ -289,7 +288,7 @@ export default function EntryScreen() {
         <ScrollView
           style={{ flex: 1 }}
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ flexGrow: 1, paddingTop: isDesktopWeb ? 28 : 12, paddingBottom: 104, alignItems: isDesktopWeb ? 'center' : undefined }}
+          contentContainerStyle={{ flexGrow: 1, paddingTop: isDesktopWeb ? 28 : 16, paddingBottom: 16, alignItems: isDesktopWeb ? 'center' : undefined }}
         >
           {(isCustomersError || isSettingsError || isWalletsError) && (
             <View style={{ marginHorizontal: 24, marginBottom: 12, padding: 12, borderRadius: 12, backgroundColor: C.dangerDim, gap: 8 }}>
@@ -309,8 +308,8 @@ export default function EntryScreen() {
               alignSelf: 'center',
               borderTopLeftRadius: isDesktopWeb ? 20 : 24,
               borderTopRightRadius: 24,
-              paddingHorizontal: isDesktopWeb ? 32 : (isCompactMobile ? 14 : 20),
-              paddingTop: isDesktopWeb ? 32 : 18,
+              paddingHorizontal: isDesktopWeb ? 32 : 20,
+              paddingTop: isDesktopWeb ? 32 : 24,
               borderWidth: 1,
               borderColor: C.border,
               backgroundColor: C.surface,
@@ -340,7 +339,7 @@ export default function EntryScreen() {
                 control={control}
                 name="type"
                 render={({ field: { onChange, value } }) => (
-                  <View style={{ flexDirection: 'row', flexWrap: isCompactMobile ? 'wrap' : 'nowrap', backgroundColor: C.bg, padding: 6, borderRadius: 16, borderWidth: 1, borderColor: C.border, gap: 4 }}>
+                  <View style={{ flexDirection: 'row', backgroundColor: C.bg, padding: 6, borderRadius: 16, borderWidth: 1, borderColor: C.border, gap: 4 }}>
                     {(['CASH_IN', 'CASH_OUT', 'E_LOAD', 'TV_LOAD'] as const).map((t) => {
                       const isActive = value === t;
                       return (
@@ -360,8 +359,7 @@ export default function EntryScreen() {
                             }
                           }}
                           style={{
-                            flex: isCompactMobile ? undefined : 1,
-                            width: isCompactMobile ? '48%' : undefined,
+                            flex: 1,
                             paddingVertical: 10,
                             borderRadius: 12,
                             alignItems: 'center',
@@ -382,7 +380,7 @@ export default function EntryScreen() {
             {/* 2. Amount Input & Fee Input */}
             <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
               <View style={{ flex: 3 }}>
-                <View style={{ minHeight: 28, justifyContent: 'center', marginBottom: 8 }}>
+                <View style={{ height: 32, justifyContent: 'center', marginBottom: 8 }}>
                   <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase' }}>
                     Base Amount (₱)
                   </Text>
@@ -419,8 +417,8 @@ export default function EntryScreen() {
               </View>
 
               <View style={{ flex: 2 }}>
-                <View style={{ minHeight: 28, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 2 }}>
-                  <Text numberOfLines={1} adjustsFontSizeToFit style={{ flexShrink: 1, color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: isCompactMobile ? 0.5 : 1.1, textTransform: 'uppercase' }}>
+                <View style={{ height: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 4 }}>
+                  <Text style={{ color: C.text3, fontSize: 9, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase' }}>
                     Fee · {isFeeOverride ? 'Custom' : 'Suggested'}
                   </Text>
                   <TouchableOpacity
@@ -501,7 +499,7 @@ export default function EntryScreen() {
                               onChange(ch);
                             }}
                             style={{
-                              minWidth: isCompactMobile ? '46%' : '30%',
+                              minWidth: '30%',
                               flexGrow: 1,
                               paddingVertical: 12,
                               paddingHorizontal: 8,
@@ -729,8 +727,8 @@ export default function EntryScreen() {
           </View>
         </ScrollView>
         <View style={{
-          paddingHorizontal: isCompactMobile ? 14 : 20,
-          paddingTop: 8,
+          paddingHorizontal: 20,
+          paddingTop: 10,
           paddingBottom: getEntryActionBarBottomPadding(insets.bottom, isKeyboardVisible),
           borderTopWidth: 1,
           borderTopColor: C.border,
