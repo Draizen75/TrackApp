@@ -154,12 +154,8 @@ export default function TabsLayout() {
               elevation: 0,
             }
           : {
-              position: 'absolute',
-              bottom: 0,
-              left: 0,
-              right: 0,
               backgroundColor: C.bg,
-              height: 62 + insets.bottom,
+              minHeight: 62 + insets.bottom,
               borderRadius: 0,
               paddingBottom: Math.max(insets.bottom, 8),
               paddingTop: 8,
