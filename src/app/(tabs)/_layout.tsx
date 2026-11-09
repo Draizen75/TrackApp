@@ -1,5 +1,4 @@
 import { Tabs } from 'expo-router';
-import { BottomTabBar } from '@react-navigation/bottom-tabs';
 import {
   Home,
   PlusCircle,
@@ -24,7 +23,7 @@ export default function TabsLayout() {
 
   return (
     <Tabs
-      tabBar={(props) => isDesktopWeb ? (
+      tabBar={(props) => {\n        const { state, descriptors, navigation } = props;\n        const items = state.routes.map((route, index) => {\n          const options = descriptors[route.key].options;\n          const focused = state.index === index;\n          const color = focused ? C.accent : C.text3;\n          const icon = options.tabBarIcon?.({ focused, color, size: 20 });\n          const label = typeof options.title === 'string' ? options.title : route.name;\n          return (\n            <TouchableOpacity\n              key={route.key}\n              accessibilityRole="button"\n              accessibilityState={{ selected: focused }}\n              accessibilityLabel={options.tabBarAccessibilityLabel ?? label}\n              testID={options.tabBarButtonTestID}\n              onPress={() => {\n                const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });\n                if (!focused && !event.defaultPrevented) navigation.navigate(route.name, route.params);\n              }}\n              onLongPress={() => navigation.emit({ type: 'tabLongPress', target: route.key })}\n              style={{\n                minHeight: isDesktopWeb ? 48 : 58,\n                flexDirection: isDesktopWeb && !isSidebarCollapsed ? 'row' : 'column',\n                alignItems: 'center',\n                justifyContent: isDesktopWeb && !isSidebarCollapsed ? 'flex-start' : 'center',\n                gap: isDesktopWeb && !isSidebarCollapsed ? 12 : 4,\n                borderRadius: 10,\n                marginBottom: isDesktopWeb ? 6 : 0,\n                paddingHorizontal: isDesktopWeb && !isSidebarCollapsed ? 12 : 4,\n                flex: isDesktopWeb ? undefined : 1,\n                backgroundColor: focused && isDesktopWeb ? 'rgba(255,209,102,0.12)' : 'transparent',\n              }}\n            >\n              {icon}\n              {(!isDesktopWeb || !isSidebarCollapsed) && (\n                <Text numberOfLines={1} style={{ color, fontSize: isDesktopWeb ? 13 : 9, fontWeight: focused ? '800' : '600', textAlign: 'center' }}>{label}</Text>\n              )}\n            </TouchableOpacity>\n          );\n        });\n        return isDesktopWeb ? (
         <View style={{
           width: sidebarWidth,
           minWidth: sidebarWidth,
@@ -71,7 +70,7 @@ export default function TabsLayout() {
                 : <PanelLeftClose size={18} color={C.text2} />}
             </TouchableOpacity>
           </View>
-          <BottomTabBar {...props} />
+          <View style={{ flex: 1, paddingTop: 8 }}>{items}</View>
           {!isSidebarCollapsed && (
             <View style={{ marginTop: 'auto', paddingHorizontal: 10, paddingVertical: 18, borderTopWidth: 1, borderTopColor: C.border }}>
               <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', letterSpacing: 1 }}>PERSONAL LEDGER</Text>
@@ -79,8 +78,7 @@ export default function TabsLayout() {
             </View>
           )}
         </View>
-      ) : <BottomTabBar {...props} />}
-      screenOptions={{
+      ) : (\n        <View style={{ flexDirection: 'row', alignItems: 'stretch', justifyContent: 'space-around', backgroundColor: C.bg, borderTopWidth: 1, borderTopColor: C.border, paddingTop: 6, paddingBottom: Math.max(insets.bottom, 8) }}>\n          {items}\n        </View>\n      );\n      }}\n      screenOptions={{
         headerShown: false,
         tabBarPosition: isDesktopWeb ? 'left' : 'bottom',
         tabBarLabelPosition: isDesktopWeb ? (isSidebarCollapsed ? 'below-icon' : 'beside-icon') : 'below-icon',
