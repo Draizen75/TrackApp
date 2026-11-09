@@ -709,24 +709,46 @@ export default function EntryScreen() {
               </View>
             )}
 
+            {isDesktopWeb && (
+              <View style={{
+                alignItems: 'flex-end',
+                paddingTop: 8,
+                paddingBottom: 24,
+                marginTop: 4,
+                borderTopWidth: 1,
+                borderTopColor: C.border,
+              }}>
+                <GoldButton
+                  testID="log-transaction"
+                  onPress={handleSubmit(onSubmit)}
+                  disabled={isSubmitting || addCustomerMutation.isPending || addTransactionMutation.isPending}
+                  loading={isSubmitting || addCustomerMutation.isPending || addTransactionMutation.isPending}
+                  label={isSubmitting || addCustomerMutation.isPending || addTransactionMutation.isPending ? 'SAVING TRANSACTION...' : 'LOG TRANSACTION'}
+                  style={{ width: 240 }}
+                />
+              </View>
+            )}
+
           </View>
         </ScrollView>
-        <View style={{
-          paddingHorizontal: 20,
-          paddingTop: 10,
-          paddingBottom: 8,
-          borderTopWidth: 1,
-          borderTopColor: C.border,
-          backgroundColor: C.bg,
-        }}>
-          <GoldButton
-            testID="log-transaction"
-            onPress={handleSubmit(onSubmit)}
-            disabled={isSubmitting || addCustomerMutation.isPending || addTransactionMutation.isPending}
-            loading={isSubmitting || addCustomerMutation.isPending || addTransactionMutation.isPending}
-            label={isSubmitting || addCustomerMutation.isPending || addTransactionMutation.isPending ? 'SAVING TRANSACTION...' : 'LOG TRANSACTION'}
-          />
-        </View>
+        {!isDesktopWeb && (
+          <View style={{
+            paddingHorizontal: 20,
+            paddingTop: 10,
+            paddingBottom: 8,
+            borderTopWidth: 1,
+            borderTopColor: C.border,
+            backgroundColor: C.bg,
+          }}>
+            <GoldButton
+              testID="log-transaction"
+              onPress={handleSubmit(onSubmit)}
+              disabled={isSubmitting || addCustomerMutation.isPending || addTransactionMutation.isPending}
+              loading={isSubmitting || addCustomerMutation.isPending || addTransactionMutation.isPending}
+              label={isSubmitting || addCustomerMutation.isPending || addTransactionMutation.isPending ? 'SAVING TRANSACTION...' : 'LOG TRANSACTION'}
+            />
+          </View>
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
