@@ -1,12 +1,17 @@
 import { Tabs } from 'expo-router';
+import { BottomTabBar } from '@react-navigation/bottom-tabs';
 import {
   Home,
   PlusCircle,
   Users,
   History,
   Settings,
+  PanelLeftClose,
+  PanelLeftOpen,
+  WalletCards,
 } from 'lucide-react-native';
-import { Platform, useWindowDimensions } from 'react-native';
+import { useState } from 'react';
+import { Platform, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ledgerColors as C } from '@/theme/ledger';
 
@@ -14,29 +19,84 @@ export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isDesktopWeb = Platform.OS === 'web' && width >= 1024;
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const sidebarWidth = isSidebarCollapsed ? 76 : 224;
 
   return (
     <Tabs
+      tabBar={(props) => isDesktopWeb ? (
+        <View style={{
+          width: sidebarWidth,
+          minWidth: sidebarWidth,
+          maxWidth: sidebarWidth,
+          height: '100%',
+          backgroundColor: C.surface,
+          borderRightWidth: 1,
+          borderRightColor: C.border,
+          paddingTop: 18,
+          paddingHorizontal: isSidebarCollapsed ? 10 : 14,
+        }}>
+          <View style={{
+            minHeight: 54,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: isSidebarCollapsed ? 'center' : 'space-between',
+            paddingHorizontal: isSidebarCollapsed ? 0 : 8,
+            marginBottom: 20,
+          }}>
+            {!isSidebarCollapsed && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
+                <WalletCards size={21} color={C.accent} />
+                <Text style={{ color: C.text1, fontSize: 15, fontWeight: '900', letterSpacing: 1.2 }}>TRACK<Text style={{ color: C.accent }}>APP</Text></Text>
+              </View>
+            )}
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              accessibilityHint="Changes the desktop navigation width"
+              onPress={() => setIsSidebarCollapsed((current) => !current)}
+              style={{
+                width: 38,
+                height: 38,
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: 10,
+                backgroundColor: C.surface2,
+                borderWidth: 1,
+                borderColor: C.border,
+              }}
+            >
+              {isSidebarCollapsed
+                ? <PanelLeftOpen size={18} color={C.text2} />
+                : <PanelLeftClose size={18} color={C.text2} />}
+            </TouchableOpacity>
+          </View>
+          <BottomTabBar {...props} />
+          {!isSidebarCollapsed && (
+            <View style={{ marginTop: 'auto', paddingHorizontal: 10, paddingVertical: 18, borderTopWidth: 1, borderTopColor: C.border }}>
+              <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', letterSpacing: 1 }}>PERSONAL LEDGER</Text>
+              <Text style={{ color: C.text3, fontSize: 10, marginTop: 5 }}>Obsidian & Gold</Text>
+            </View>
+          )}
+        </View>
+      ) : <BottomTabBar {...props} />}
       screenOptions={{
         headerShown: false,
         tabBarPosition: isDesktopWeb ? 'left' : 'bottom',
-        tabBarLabelPosition: isDesktopWeb ? 'beside-icon' : 'below-icon',
+        tabBarLabelPosition: isDesktopWeb ? (isSidebarCollapsed ? 'below-icon' : 'beside-icon') : 'below-icon',
+        tabBarShowLabel: !isDesktopWeb || !isSidebarCollapsed,
         tabBarStyle: isDesktopWeb
           ? {
-              width: 220,
-              minWidth: 220,
-              maxWidth: 220,
-              backgroundColor: C.surface,
-              borderRightWidth: 1,
-              borderRightColor: C.border,
+              width: sidebarWidth - (isSidebarCollapsed ? 20 : 28),
+              minWidth: sidebarWidth - (isSidebarCollapsed ? 20 : 28),
+              maxWidth: sidebarWidth - (isSidebarCollapsed ? 20 : 28),
+              flex: 1,
+              backgroundColor: 'transparent',
+              borderRightWidth: 0,
               borderTopWidth: 0,
-              paddingTop: 28,
-              paddingHorizontal: 14,
+              paddingTop: 8,
+              paddingHorizontal: 0,
               elevation: 0,
-              shadowColor: '#000',
-              shadowOpacity: 0.16,
-              shadowOffset: { width: 2, height: 0 },
-              shadowRadius: 16,
             }
           : {
               position: 'absolute',
@@ -81,54 +141,18 @@ export default function TabsLayout() {
               borderRadius: 10,
               marginBottom: 6,
               backgroundColor: 'transparent',
-              paddingHorizontal: 12,
-              justifyContent: 'flex-start',
+              paddingHorizontal: isSidebarCollapsed ? 0 : 12,
+              justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
             }
           : undefined,
-        tabBarIconStyle: isDesktopWeb ? { marginRight: 12 } : undefined,
+        tabBarIconStyle: isDesktopWeb ? { marginRight: isSidebarCollapsed ? 0 : 12 } : undefined,
       }}
     >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Dashboard',
-          tabBarButtonTestID: 'tab-dashboard',
-          tabBarIcon: ({ color, size }) => <Home size={size || 20} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="entry"
-        options={{
-          title: 'Quick Entry',
-          tabBarButtonTestID: 'tab-quick-entry',
-          tabBarHideOnKeyboard: true,
-          tabBarIcon: ({ color, size }) => <PlusCircle size={size || 20} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="debtors"
-        options={{
-          title: 'Debtors',
-          tabBarButtonTestID: 'tab-debtors',
-          tabBarIcon: ({ color, size }) => <Users size={size || 20} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="history"
-        options={{
-          title: 'History',
-          tabBarButtonTestID: 'tab-history',
-          tabBarIcon: ({ color, size }) => <History size={size || 20} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="data"
-        options={{
-          title: 'Settings',
-          tabBarButtonTestID: 'tab-settings',
-          tabBarIcon: ({ color, size }) => <Settings size={size || 20} color={color} />,
-        }}
-      />
+      <Tabs.Screen name="index" options={{ title: 'Dashboard', tabBarButtonTestID: 'tab-dashboard', tabBarIcon: ({ color, size }) => <Home size={size || 20} color={color} /> }} />
+      <Tabs.Screen name="entry" options={{ title: 'Quick Entry', tabBarButtonTestID: 'tab-quick-entry', tabBarHideOnKeyboard: true, tabBarIcon: ({ color, size }) => <PlusCircle size={size || 20} color={color} /> }} />
+      <Tabs.Screen name="debtors" options={{ title: 'Debtors', tabBarButtonTestID: 'tab-debtors', tabBarIcon: ({ color, size }) => <Users size={size || 20} color={color} /> }} />
+      <Tabs.Screen name="history" options={{ title: 'History', tabBarButtonTestID: 'tab-history', tabBarIcon: ({ color, size }) => <History size={size || 20} color={color} /> }} />
+      <Tabs.Screen name="data" options={{ title: 'Settings', tabBarButtonTestID: 'tab-settings', tabBarIcon: ({ color, size }) => <Settings size={size || 20} color={color} /> }} />
     </Tabs>
   );
 }
