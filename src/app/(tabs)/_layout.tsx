@@ -18,7 +18,17 @@ export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isDesktopWeb = Platform.OS === 'web' && width >= 1024;
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);\n  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);\n\n  useEffect(() => {\n    const showSubscription = Keyboard.addListener('keyboardDidShow', () => setIsKeyboardVisible(true));\n    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => setIsKeyboardVisible(false));\n    return () => {\n      showSubscription.remove();\n      hideSubscription.remove();\n    };\n  }, []);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const showSubscription = Keyboard.addListener('keyboardDidShow', () => setIsKeyboardVisible(true));
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => setIsKeyboardVisible(false));
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
   const sidebarWidth = isSidebarCollapsed ? 76 : 224;
 
   return (
@@ -63,7 +73,8 @@ export default function TabsLayout() {
             </TouchableOpacity>
           );
         });
-        if (!isDesktopWeb && isKeyboardVisible) return null;\n        return isDesktopWeb ? (
+        if (!isDesktopWeb && isKeyboardVisible) return null;
+        return isDesktopWeb ? (
         <View style={{
           width: sidebarWidth,
           minWidth: sidebarWidth,
