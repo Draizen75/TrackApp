@@ -231,8 +231,8 @@ export default function DashboardScreen() {
           colors={['#282315', '#11141f']}
           style={{
             borderRadius: ledgerRadius.card,
-            paddingHorizontal: isDesktopWeb ? 36 : 24,
-            paddingVertical: isDesktopWeb ? 32 : 26,
+            paddingHorizontal: isDesktopWeb ? 28 : 24,
+            paddingVertical: isDesktopWeb ? 22 : 26,
             borderWidth: 1,
             borderColor: C.accent,
             ...ledgerElevation.accent,
@@ -292,7 +292,7 @@ export default function DashboardScreen() {
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ gap: 10, paddingRight: 8 }}
+            contentContainerStyle={{ gap: 10, paddingRight: 8, width: isDesktopWeb ? '100%' : undefined, flexGrow: isDesktopWeb ? 1 : 0 }}
           >
             {data.wallets.length === 0 ? (
               <LedgerEmptyState title="No wallets configured" description="Add a wallet in Settings to start tracking your counter float." />
@@ -303,8 +303,11 @@ export default function DashboardScreen() {
                   key={wallet.channel}
                   colors={theme.colors as [string, string]}
                   style={{
-                    width: 148,
-                    height: 100,
+                    width: isDesktopWeb ? '18%' : 148,
+                    minWidth: isDesktopWeb ? 130 : 148,
+                    flexGrow: isDesktopWeb ? 1 : 0,
+                    flexShrink: isDesktopWeb ? 1 : 0,
+                    height: isDesktopWeb ? 116 : 100,
                     borderRadius: 16,
                     padding: 14,
                     justifyContent: 'space-between',
@@ -342,9 +345,9 @@ export default function DashboardScreen() {
           </View>
 
           {/* Compact summary rows keep the earnings hierarchy calm and scannable. */}
-          <View>
+          <View style={{ flexDirection: isDesktopWeb ? 'row' : 'column', flexWrap: isDesktopWeb ? 'wrap' : 'nowrap', gap: isDesktopWeb ? 12 : 0 }}>
             {/* Today */}
-            <View style={SUMMARY_ROW_STYLE}>
+            <View style={{ ...SUMMARY_ROW_STYLE, width: isDesktopWeb ? '32%' : '100%', borderBottomWidth: isDesktopWeb ? 0 : 1, borderRightWidth: isDesktopWeb ? 1 : 0, borderRightColor: C.border, paddingHorizontal: isDesktopWeb ? 12 : 0 }}>
               <View>
                 <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>Today</Text>
                 <Text style={{ color: C.text1, fontSize: 16, fontWeight: '800', marginTop: 2 }}>
@@ -378,7 +381,7 @@ export default function DashboardScreen() {
               </View>
             </View>
 
-            <View style={{ ...SUMMARY_ROW_STYLE, borderBottomWidth: 0 }}>
+            <View style={{ ...SUMMARY_ROW_STYLE, width: isDesktopWeb ? '32%' : '100%', borderBottomWidth: 0, borderRightWidth: 0, paddingHorizontal: isDesktopWeb ? 12 : 0 }}>
               <View>
                 <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>Month to Date</Text>
                 <Text style={{ color: C.accent, fontSize: 16, fontWeight: '800', marginTop: 2 }}>
