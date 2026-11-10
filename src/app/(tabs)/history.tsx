@@ -454,7 +454,7 @@ export default function HistoryScreen() {
 
   const renderTransaction = useCallback<ListRenderItem<Transaction>>(
     ({ item }) => <TransactionCard transaction={item} compact={!isDesktopWeb} onViewDetails={handleOpenTransactionDetails} onEdit={handleOpenEditModal} onDelete={handleDelete} onSettleDebt={(transaction) => router.push({ pathname: '/debtors', params: { settleDebtId: transaction.id.toString() } })} />,
-    [handleDelete, handleOpenEditModal, handleOpenTransactionDetails, router]
+    [handleDelete, handleOpenEditModal, handleOpenTransactionDetails, isDesktopWeb, router]
   );
 
   return (
