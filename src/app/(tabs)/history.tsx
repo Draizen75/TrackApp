@@ -69,12 +69,14 @@ const getWalletLabel = (channel: string) => {
 
 const TransactionCard = React.memo(function TransactionCard({
   transaction,
+  compact,
   onViewDetails,
   onEdit,
   onDelete,
   onSettleDebt,
 }: {
   transaction: Transaction;
+  compact: boolean;
   onViewDetails: (transaction: Transaction) => void;
   onEdit: (transaction: Transaction) => void;
   onDelete: (id: number) => void;
@@ -89,14 +91,15 @@ const TransactionCard = React.memo(function TransactionCard({
     <View
       style={{
         borderRadius: ledgerRadius.card,
-        padding: 14,
+        padding: compact ? 16 : 14,
         borderWidth: 1,
         borderColor: C.border,
         backgroundColor: C.surface,
         marginBottom: 12,
-        flexDirection: 'row',
+        flexDirection: compact ? 'column' : 'row',
         justifyContent: 'space-between',
-        alignItems: 'center',
+        alignItems: compact ? 'stretch' : 'center',
+        minWidth: 0,
       }}
     >
       <TouchableOpacity
@@ -108,30 +111,34 @@ const TransactionCard = React.memo(function TransactionCard({
         style={{
           flex: 1,
           minWidth: 0,
-          marginRight: 12,
+          marginRight: compact ? 0 : 12,
+          marginBottom: compact ? 8 : 0,
           flexDirection: 'row',
           justifyContent: 'space-between',
           alignItems: 'center',
         }}
       >
         <View style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-            <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: typeDetails.bg, borderWidth: 1, borderColor: typeDetails.border }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+            <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: typeDetails.bg, borderWidth: 1, borderColor: typeDetails.border }}>
               <Text style={{ fontSize: 10, fontWeight: '900', textTransform: 'uppercase', color: typeDetails.text }}>
                 {typeDetails.label}
               </Text>
             </View>
             {transaction.is_debt === 1 && (
-              <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: C.dangerDim, borderWidth: 1, borderColor: 'rgba(220,107,90,0.2)' }}>
+              <View style={{ paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6, backgroundColor: C.dangerDim, borderWidth: 1, borderColor: 'rgba(220,107,90,0.2)' }}>
                 <Text style={{ fontSize: 10, fontWeight: '900', textTransform: 'uppercase', color: C.danger }}>
                   UTANG
                 </Text>
               </View>
             )}
-            <Text style={{ color: C.text3, fontSize: 11 }}>{formattedTime}</Text>
           </View>
 
-          <Text style={{ color: C.text1, fontSize: 14, fontWeight: '700', marginBottom: 4 }} numberOfLines={1}>
+          <Text style={{ color: C.text3, fontSize: 11, marginBottom: 7 }}>{formattedTime}</Text>
+          <Text
+            style={{ color: C.text1, fontSize: 14, fontWeight: '700', marginBottom: 4, flexShrink: 1 }}
+            numberOfLines={compact ? 2 : 1}
+          >
             {transaction.customer_name || 'Sari-Sari Anonymous'}
           </Text>
 
@@ -140,31 +147,43 @@ const TransactionCard = React.memo(function TransactionCard({
           </Text>
         </View>
 
-        <View style={{ alignItems: 'flex-end' }}>
+        <View style={{ alignItems: 'flex-end', flexShrink: 0, minWidth: compact ? 96 : undefined }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, marginBottom: 2 }}>
-            <Text style={{ color: C.text1, fontSize: 14, fontWeight: '900' }}>
+            <Text style={{ color: C.text1, fontSize: 15, fontWeight: '900', fontVariant: ['tabular-nums'] }}>
               ₱{transaction.amount.toFixed(2)}
             </Text>
             <ChevronRight size={14} color={C.text3} />
           </View>
           {transaction.fee > 0 && (
-            <Text style={{ color: C.accent, fontSize: 10, fontWeight: '700', marginBottom: 8 }}>
+            <Text style={{ color: C.accent, fontSize: 11, fontWeight: '700', marginTop: 2, textAlign: 'right' }}>
               Fee: +₱{transaction.fee.toFixed(2)}
             </Text>
           )}
         </View>
       </TouchableOpacity>
 
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'flex-end',
+          gap: compact ? 8 : 4,
+          width: compact ? '100%' : undefined,
+          paddingTop: compact ? 8 : 0,
+          marginTop: compact ? 2 : 0,
+          borderTopWidth: compact ? 1 : 0,
+          borderTopColor: C.border,
+        }}
+      >
         {transaction.is_debt === 1 && transaction.customer_id != null && (
           <TouchableOpacity
             onPress={() => onSettleDebt(transaction)}
             accessibilityRole="button"
             accessibilityLabel="Settle selected debt"
             hitSlop={8}
-            style={{ width: 36, height: 40, justifyContent: 'center', alignItems: 'center' }}
+            style={{ width: 44, height: 40, justifyContent: 'center', alignItems: 'center' }}
           >
-            <Coins size={14} color={C.success} />
+            <Coins size={16} color={C.success} />
           </TouchableOpacity>
         )}
         <TouchableOpacity
@@ -172,18 +191,18 @@ const TransactionCard = React.memo(function TransactionCard({
           accessibilityRole="button"
           accessibilityLabel="Edit transaction"
           hitSlop={8}
-          style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}
+          style={{ width: 44, height: 40, alignItems: 'center', justifyContent: 'center' }}
         >
-          <Pencil size={13} color={C.accent} />
+          <Pencil size={16} color={C.accent} />
         </TouchableOpacity>
         <TouchableOpacity
           onPress={() => onDelete(transaction.id)}
           accessibilityRole="button"
           accessibilityLabel="Delete transaction"
           hitSlop={8}
-          style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}
+          style={{ width: 44, height: 40, alignItems: 'center', justifyContent: 'center' }}
         >
-          <Trash2 size={13} color={C.text3} />
+          <Trash2 size={16} color={C.text3} />
         </TouchableOpacity>
       </View>
     </View>
@@ -434,7 +453,7 @@ export default function HistoryScreen() {
   };
 
   const renderTransaction = useCallback<ListRenderItem<Transaction>>(
-    ({ item }) => <TransactionCard transaction={item} onViewDetails={handleOpenTransactionDetails} onEdit={handleOpenEditModal} onDelete={handleDelete} onSettleDebt={(transaction) => router.push({ pathname: '/debtors', params: { settleDebtId: transaction.id.toString() } })} />,
+    ({ item }) => <TransactionCard transaction={item} compact={!isDesktopWeb} onViewDetails={handleOpenTransactionDetails} onEdit={handleOpenEditModal} onDelete={handleDelete} onSettleDebt={(transaction) => router.push({ pathname: '/debtors', params: { settleDebtId: transaction.id.toString() } })} />,
     [handleDelete, handleOpenEditModal, handleOpenTransactionDetails, router]
   );
 
