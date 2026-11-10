@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Modal, Keyboard, KeyboardAvoidingView, FlatList, SectionList, Platform, useWindowDimensions } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { calculateDebtPaymentAllocation, getDebtOutstandingById, getDebtorBalanceStatus, isSettlementBreakdownBalanced, splitSettlementReceived, calculateSettlementTotalForProfit, useDbQueries, Debtor, Transaction, cleanErrorMessage } from '@/hooks/useDbQueries';
+import { calculateDebtPaymentAllocation, getDebtOutstandingById, getDebtorBalanceStatus, isSettlementBreakdownBalanced, splitSettlementReceived, useDbQueries, Debtor, Transaction, cleanErrorMessage } from '@/hooks/useDbQueries';
 import { ToastNotice, useToast, type ToastType } from '@/components/toast';
 import { GoldButton } from '@/components/gold-button';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -58,6 +58,8 @@ export default function DebtorsScreen() {
   const [selectedDebtIds, setSelectedDebtIds] = useState<number[]>([]);
   const [isDebtSelectionMode, setIsDebtSelectionMode] = useState(false);
   const [settleAmount, setSettleAmount] = useState('');
+  // Keep principal independent from extra profit; the amount field displays their sum.
+  const [settlePrincipal, setSettlePrincipal] = useState(0);
   const [settleProfit, setSettleProfit] = useState('');
   const [settleChannel, setSettleChannel] = useState<string>('PHYSICAL_CASH');
   const [modalVisible, setModalVisible] = useState(false);
@@ -179,36 +181,30 @@ export default function DebtorsScreen() {
     setSelectedDebtor(debtor);
     setSelectedDebtEntry(null);
     setSelectedDebtIds([]);
-    setSettleAmount(debtor.balance.toString());
+    setSettlePrincipal(debtor.balance);
+    setSettleAmount(debtor.balance.toFixed(2));
     setSettleProfit('');
     setModalVisible(true);
   };
 
   const handleSettlementAmountChange = (value: string) => {
     setSettleAmount(value);
-    const received = parseFloat(value);
-    if (!selectedDebtor || !Number.isFinite(received) || received <= 0) return;
+    if (!isValidMoneyInput(value, true)) return;
 
-    const { suggestedProfit } = splitSettlementReceived(received, getSettlementPrincipalCap());
+    const received = Number(value);
+    const { principal, suggestedProfit } = splitSettlementReceived(received, getSettlementPrincipalCap());
+    setSettlePrincipal(principal);
     setSettleProfit(suggestedProfit > 0 ? suggestedProfit.toFixed(2) : '');
   };
 
   const handleSettlementProfitChange = (value: string) => {
     setSettleProfit(value);
-    if (!selectedDebtor || (value.trim() !== '' && !isValidMoneyInput(value, true))) return;
-
-    const received = Number(settleAmount);
-    if (!Number.isFinite(received) || received < 0) return;
+    if (value.trim() !== '' && !isValidMoneyInput(value, true)) return;
 
     const profit = value.trim() === '' ? 0 : Number(value);
-    const previousProfit = settleProfit.trim() === '' ? 0 : Number(settleProfit);
-    const nextTotal = calculateSettlementTotalForProfit(
-      received,
-      getSettlementPrincipalCap(),
-      profit,
-      previousProfit,
-    );
-    setSettleAmount(nextTotal.toFixed(2));
+    // Principal is held separately, so editing profit never changes how much
+    // debt is paid. The displayed total is always principal + extra profit.
+    setSettleAmount((settlePrincipal + profit).toFixed(2));
   };
 
   const handleQuickFullSettle = async (debtor: Debtor) => {
@@ -348,13 +344,8 @@ export default function DebtorsScreen() {
       return;
     }
     const received = Number(settleAmount);
-    const enteredProfit = parseFloat(settleProfit);
-    const principalCap = getSettlementPrincipalCap();
-    const settlementSplit = splitSettlementReceived(received, principalCap);
-    const profit = Number.isFinite(enteredProfit)
-      ? enteredProfit
-      : settlementSplit.suggestedProfit;
-    const amount = settlementSplit.principal;
+    const amount = settlePrincipal;
+    const profit = settleProfit.trim() === '' ? 0 : Number(settleProfit);
 
     if (received < 0 || profit < 0) {
       setSettlementNotice({ message: 'Please enter non-negative amounts.', type: 'error' });
@@ -525,6 +516,7 @@ export default function DebtorsScreen() {
     const openPayment = setTimeout(() => {
       setSelectedDebtor(debtor);
       setSelectedDebtEntry(debt);
+      setSettlePrincipal(outstanding);
       setSettleAmount(outstanding.toFixed(2));
       setSettleProfit('');
       setDetailModalVisible(false);
@@ -553,6 +545,7 @@ export default function DebtorsScreen() {
     if (outstanding <= 0.01) return;
     setSelectedDebtEntry(debt);
     setSelectedDebtIds([]);
+    setSettlePrincipal(outstanding);
     setSettleAmount(outstanding.toFixed(2));
     setSettleProfit('');
     setModalVisible(true);
@@ -572,6 +565,7 @@ export default function DebtorsScreen() {
     if (!selectedDebtor || activeSelectedDebtIds.length === 0 || selectedTotal <= 0.01) return;
     setSettlementNotice(null);
     setSelectedDebtEntry(null);
+    setSettlePrincipal(selectedTotal);
     setSettleAmount(selectedTotal.toFixed(2));
     setSettleProfit('');
     setModalVisible(true);
@@ -1387,8 +1381,8 @@ export default function DebtorsScreen() {
               <View style={{ backgroundColor: C.bg, borderRadius: ledgerRadius.card, borderWidth: 1, borderColor: C.border, padding: ledgerSpacing.md, marginBottom: ledgerSpacing.lg }}>
                 <Text style={{ color: C.text2, fontSize: 10, fontWeight: '800', letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 10 }}>Payment breakdown preview</Text>
                 {(() => {
-                  const preview = splitSettlementReceived(Number(settleAmount) || 0, getSettlementPrincipalCap());
-                  const profit = settleProfit.trim() === '' ? preview.suggestedProfit : Number(settleProfit);
+                  const preview = { principal: settlePrincipal };
+                  const profit = settleProfit.trim() === '' ? 0 : Number(settleProfit);
                   return <>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 7 }}>
                       <Text style={{ color: C.text3, fontSize: 12 }}>Debt balance applied</Text>
@@ -1401,7 +1395,7 @@ export default function DebtorsScreen() {
                     <View style={{ height: 1, backgroundColor: C.border, marginBottom: 9 }} />
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                       <Text style={{ color: C.text2, fontSize: 12, fontWeight: '700' }}>Total received</Text>
-                      <Text style={{ color: C.success, fontSize: 14, fontWeight: '900', fontVariant: ['tabular-nums'] }}>₱{(Number(settleAmount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+                      <Text style={{ color: C.success, fontSize: 14, fontWeight: '900', fontVariant: ['tabular-nums'] }}>₱{(settlePrincipal + (Number.isFinite(profit) ? profit : 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
                     </View>
                   </>;
                 })()}
