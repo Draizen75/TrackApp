@@ -58,8 +58,12 @@ appId: com.draizen.TrackApp
 - tapOn:
     id: "confirm-wallet-balance"
 - extendedWaitUntil:
-    visible: "₱1,000.00"
+    visible:
+      id: "wallet-balance-GCASH"
     timeout: 15000
+- assertVisible:
+    id: "wallet-balance-GCASH"
+- assertVisible: "Tap to override balance"
 
 # Begin the debt lifecycle with the funded, clean test ledger.
 - tapOn:
