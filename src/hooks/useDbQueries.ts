@@ -1881,12 +1881,17 @@ export function useWebDbQueries() {
           if (normalizedTx.customer_id && !db.customers.some((customer: Customer) => customer.id === normalizedTx.customer_id)) {
             throw new Error('Selected debtor does not exist.');
           }
-          const hasTargetedPayments = oldTx.is_debt === 1 && db.transactions.some((item: Transaction) => item.target_debt_id === oldTx.id);
-          if (hasTargetedPayments && (
+          const hasAllocatedPayments = oldTx.is_debt === 1 && db.transactions.some((item: Transaction) =>
+            item.type === 'DEBT_PAYMENT' && item.customer_id === oldTx.customer_id &&
+            (item.target_debt_id === oldTx.id ||
+              new Date(item.created_at).getTime() > new Date(oldTx.created_at).getTime() ||
+              (new Date(item.created_at).getTime() === new Date(oldTx.created_at).getTime() && item.id > oldTx.id))
+          );
+          if (hasAllocatedPayments && (
             !normalizedTx.is_debt || normalizedTx.customer_id !== oldTx.customer_id || normalizedTx.amount !== oldTx.amount ||
             normalizedTx.fee !== oldTx.fee || normalizedTx.deduct_fee !== Boolean(oldTx.deduct_fee)
           )) {
-            throw new Error('Cannot modify a debt with targeted payments. Delete its targeted payments first.');
+            throw new Error('Cannot modify a debt after payments may have been allocated to it. Reverse dependent payments first.');
           }
           if (normalizedTx.type === 'DEBT_PAYMENT') {
             const customerId = normalizedTx.customer_id;
@@ -1942,8 +1947,13 @@ export function useWebDbQueries() {
         const idx = db.transactions.findIndex((t: any) => t.id === id);
         if (idx !== -1) {
           const tx = db.transactions[idx];
-          if (tx.is_debt === 1 && db.transactions.some((item: Transaction) => item.target_debt_id === tx.id)) {
-            throw new Error('Cannot delete a debt with targeted payments. Delete its targeted payments first.');
+          if (tx.is_debt === 1 && db.transactions.some((item: Transaction) =>
+            item.type === 'DEBT_PAYMENT' && item.customer_id === tx.customer_id &&
+            (item.target_debt_id === tx.id ||
+              new Date(item.created_at).getTime() > new Date(tx.created_at).getTime() ||
+              (new Date(item.created_at).getTime() === new Date(tx.created_at).getTime() && item.id > tx.id))
+          )) {
+            throw new Error('Cannot delete a debt after payments may have been allocated to it. Reverse dependent payments first.');
           }
           applyTxToWallets(db.wallets, tx, true);
           db.transactions.splice(idx, 1);
@@ -2216,11 +2226,38 @@ export function useWebDbQueries() {
           if (channel) acc[channel] = Number(wallet.balance) || 0;
           return acc;
         }, {});
+        const normalizedTransactions = backup.transactions.map((tx) => ({
+          ...tx,
+          amount: roundCurrency(Number(tx.amount)),
+          fee: roundCurrency(Number(tx.fee)),
+          customer_id: tx.customer_id == null ? null : Number(tx.customer_id),
+          target_debt_id: tx.target_debt_id == null ? null : Number(tx.target_debt_id),
+          is_debt: Number(tx.is_debt) === 1 ? 1 : 0,
+          deduct_fee: Number(tx.deduct_fee) === 1 ? 1 : 0,
+        }));
+        const normalizedCustomers = backup.customers.map((customer) => ({
+          ...customer,
+          id: Number(customer.id),
+          name: String(customer.name).trim(),
+          phone: customer.phone == null ? null : String(customer.phone),
+        }));
+        const normalizedSettings = { ...defaultWebDb.settings, ...(backup.settings || {}) };
+        const nonNegativeSettingKeys = ['cash_fee_per_step', 'eload_fee_low', 'eload_fee_high', 'tvload_fee'];
+        for (const key of nonNegativeSettingKeys) {
+          const value = normalizedSettings[key];
+          if (value != null && (!Number.isFinite(Number(value)) || Number(value) < 0)) {
+            throw new Error(`Backup contains an invalid ${key} setting.`);
+          }
+        }
+        const cashStep = normalizedSettings.cash_step_amount;
+        if (cashStep != null && (!Number.isFinite(Number(cashStep)) || Number(cashStep) <= 0)) {
+          throw new Error('Backup contains an invalid cash_step_amount setting.');
+        }
         const restoredDb = {
-          customers: backup.customers || [],
-          transactions: backup.transactions || [],
+          customers: normalizedCustomers,
+          transactions: normalizedTransactions,
           wallets: { ...defaultWebDb.wallets, ...wallets },
-          settings: { ...defaultWebDb.settings, ...(backup.settings || {}) },
+          settings: normalizedSettings,
         };
         await saveWebDb(restoredDb);
       },
