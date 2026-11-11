@@ -16,11 +16,21 @@ appId: com.draizen.TrackApp
     timeout: 30000
 - tapOn:
     id: "tab-settings"
-# The hosted emulator may show a Pixel Launcher background ANR over the
-# foreground app after tab navigation. Dismiss it before querying the UI.
+# The hosted emulator can surface a Pixel Launcher ANR dialog while switching
+# tabs. If it intercepts the first tab press, dismiss it and retry the press.
 - tapOn:
     text: "Wait"
     optional: true
+- tapOn:
+    id: "tab-settings"
+# Also handle an ANR dialog that appears immediately after the retry.
+- tapOn:
+    text: "Wait"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "wallet-balance-GCASH"
+    timeout: 15000
 - scrollUntilVisible:
     element:
       id: "wallet-balance-GCASH"
