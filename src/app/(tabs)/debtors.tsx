@@ -58,7 +58,7 @@ export default function DebtorsScreen() {
   const [selectedDebtIds, setSelectedDebtIds] = useState<number[]>([]);
   const [isDebtSelectionMode, setIsDebtSelectionMode] = useState(false);
   const [settleAmount, setSettleAmount] = useState('');
-  // Keep principal independent from extra profit; the amount field displays their sum.
+  // Keep principal independent from extra profit; total received is calculated for the preview.
   const [settlePrincipal, setSettlePrincipal] = useState(0);
   const [settleProfit, setSettleProfit] = useState('');
   const [settleChannel, setSettleChannel] = useState<string>('PHYSICAL_CASH');
@@ -191,20 +191,20 @@ export default function DebtorsScreen() {
     setSettleAmount(value);
     if (!isValidMoneyInput(value, true)) return;
 
-    const received = Number(value);
-    const { principal, suggestedProfit } = splitSettlementReceived(received, getSettlementPrincipalCap());
+    const enteredPrincipal = Number(value);
+    const principalCap = getSettlementPrincipalCap();
+    const principal = Math.min(enteredPrincipal, principalCap);
+    const excess = Math.max(0, enteredPrincipal - principalCap);
     setSettlePrincipal(principal);
-    setSettleProfit(suggestedProfit > 0 ? suggestedProfit.toFixed(2) : '');
+    // If the user enters more than the outstanding debt, preserve the existing
+    // convenience of treating the excess as suggested profit.
+    if (excess > 0) setSettleProfit(excess.toFixed(2));
   };
 
   const handleSettlementProfitChange = (value: string) => {
     setSettleProfit(value);
-    if (value.trim() !== '' && !isValidMoneyInput(value, true)) return;
-
-    const profit = value.trim() === '' ? 0 : Number(value);
-    // Principal is held separately, so editing profit never changes how much
-    // debt is paid. The displayed total is always principal + extra profit.
-    setSettleAmount((settlePrincipal + profit).toFixed(2));
+    // Profit is separate from principal. Never rewrite the principal input
+    // when the user edits extra profit.
   };
 
   const handleQuickFullSettle = async (debtor: Debtor) => {
@@ -343,11 +343,11 @@ export default function DebtorsScreen() {
       setSettlementNotice({ message: 'Enter a valid amount with no more than two decimal places.', type: 'error' });
       return;
     }
-    const received = Number(settleAmount);
     const amount = settlePrincipal;
     const profit = settleProfit.trim() === '' ? 0 : Number(settleProfit);
+    const received = amount + profit;
 
-    if (received < 0 || profit < 0) {
+    if (received < 0 || amount < 0 || profit < 0) {
       setSettlementNotice({ message: 'Please enter non-negative amounts.', type: 'error' });
       return;
     }
@@ -1327,7 +1327,7 @@ export default function DebtorsScreen() {
                 </TouchableOpacity>
               </View>
 
-              <Text style={{ color: C.text3, fontSize: 11, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 8 }}>Total received</Text>
+              <Text style={{ color: C.text3, fontSize: 11, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 8 }}>Debt principal payment</Text>
               <TextInput
                 testID="settlement-total-received"
                 accessibilityLabel="Settlement total received"
