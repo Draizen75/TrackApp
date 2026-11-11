@@ -272,9 +272,30 @@ describe('SQLite ledger guards', () => {
     );
 
     await expect(db.runAsync('DELETE FROM transactions WHERE id = 401'))
-      .rejects.toThrow('Cannot delete a debt with targeted payments');
+      .rejects.toThrow('Cannot delete a debt after payments may have been allocated');
     await expect(db.runAsync('UPDATE transactions SET amount = 50 WHERE id = 401'))
-      .rejects.toThrow('Cannot modify a debt with targeted payments');
+      .rejects.toThrow('Cannot modify a debt after payments may have been allocated');
+  });
+
+  it('protects a debt from edits and deletion after a later FIFO payment', async () => {
+    await db.runAsync(
+      "INSERT INTO transactions (id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, created_at) VALUES (411, 'E_LOAD', 100, 0, 'GCASH', 1, 1, 0, ?)",
+      ['2026-01-01T00:00:00.000Z']
+    );
+    await db.runAsync(
+      "INSERT INTO transactions (id, type, amount, fee, channel, customer_id, is_debt, deduct_fee, created_at) VALUES (412, 'DEBT_PAYMENT', 40, 0, 'GCASH', 1, 0, 0, ?)",
+      ['2026-01-02T00:00:00.000Z']
+    );
+
+    await expect(db.runAsync('DELETE FROM transactions WHERE id = 411'))
+      .rejects.toThrow('Cannot delete a debt after payments may have been allocated');
+    await expect(db.runAsync('UPDATE transactions SET amount = 20 WHERE id = 411'))
+      .rejects.toThrow('Cannot modify a debt after payments may have been allocated');
+
+    const debt = await db.getFirstAsync<{ amount: number }>('SELECT amount FROM transactions WHERE id = 411');
+    const payment = await db.getFirstAsync<{ amount: number }>('SELECT amount FROM transactions WHERE id = 412');
+    expect(debt?.amount).toBe(100);
+    expect(payment?.amount).toBe(40);
   });
 
   it('rejects a selected-debt payment whose debt reference is invalid', async () => {
