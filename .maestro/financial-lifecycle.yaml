@@ -27,10 +27,6 @@ appId: com.draizen.TrackApp
 - tapOn:
     text: "Wait"
     optional: true
-- extendedWaitUntil:
-    visible:
-      id: "wallet-balance-GCASH"
-    timeout: 15000
 - scrollUntilVisible:
     element:
       id: "wallet-balance-GCASH"
@@ -43,10 +39,6 @@ appId: com.draizen.TrackApp
 - tapOn:
     text: "Wait"
     optional: true
-- extendedWaitUntil:
-    visible:
-      id: "wallet-balance-input"
-    timeout: 10000
 - tapOn:
     id: "wallet-balance-input"
 - eraseText: 20
@@ -62,10 +54,6 @@ appId: com.draizen.TrackApp
     text: "Wait"
     optional: true
 # Locate the confirm control by its stable test ID, not visible copy.
-- extendedWaitUntil:
-    visible:
-      id: "confirm-wallet-balance"
-    timeout: 10000
 - tapOn:
     id: "confirm-wallet-balance"
     visible: "₱1,000.00"
@@ -74,10 +62,6 @@ appId: com.draizen.TrackApp
 # Begin the debt lifecycle with the funded, clean test ledger.
 - tapOn:
     id: "tab-quick-entry"
-- extendedWaitUntil:
-    visible:
-      id: "base-transaction-amount"
-    timeout: 15000
 - tapOn:
     id: "base-transaction-amount"
 - inputText: "100"
@@ -107,10 +91,6 @@ appId: com.draizen.TrackApp
 # A visible debtor record confirms that both customer creation and debt logging
 # completed and were persisted.
 # Wait for the entry screen and keyboard dismissal before navigating.
-- extendedWaitUntil:
-    visible:
-      id: "base-transaction-amount"
-    timeout: 15000
 - tapOn:
     id: "tab-debtors"
 - extendedWaitUntil:
@@ -184,10 +164,6 @@ appId: com.draizen.TrackApp
 
 # Fully settled customers are intentionally moved out of Active Debts and
 # shown under the collapsed Settled Accounts & History section.
-- extendedWaitUntil:
-    visible:
-      id: "settled-accounts-toggle"
-    timeout: 15000
 - tapOn:
     id: "settled-accounts-toggle"
 - extendedWaitUntil:
