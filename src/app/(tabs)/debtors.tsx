@@ -26,7 +26,7 @@ import { ledgerColors as C, ledgerRadius, ledgerSpacing } from '@/theme/ledger';
 import { LedgerEmptyState, LedgerErrorState, LedgerLoadingState } from '@/components/ledger-state';
 import { getDebtorPaymentLabel, isPaymentWithinDays } from '@/utils/debtor-payment-label';
 import { useScreenFocus } from '@/hooks/useScreenFocus';
-import { isValidMoneyInput } from '@/utils/strict-money';
+import { getSettlementPrincipalBreakdown, isValidMoneyInput } from '@/utils/strict-money';
 
 // ─── Obsidian & Gold Design ────────────────────────────────────────────────────
 export default function DebtorsScreen() {
@@ -189,16 +189,15 @@ export default function DebtorsScreen() {
 
   const handleSettlementAmountChange = (value: string) => {
     setSettleAmount(value);
-    if (!isValidMoneyInput(value, true)) return;
+    const breakdown = getSettlementPrincipalBreakdown(value, getSettlementPrincipalCap());
+    if (!breakdown) return;
 
-    const enteredPrincipal = Number(value);
-    const principalCap = getSettlementPrincipalCap();
-    const principal = Math.min(enteredPrincipal, principalCap);
-    const excess = Math.max(0, enteredPrincipal - principalCap);
-    setSettlePrincipal(principal);
+    // Clearing the field is an explicit zero-principal payment, not an invalid
+    // edit. This keeps profit-only settlements independent from the last value.
+    setSettlePrincipal(breakdown.principal);
     // If the user enters more than the outstanding debt, preserve the existing
     // convenience of treating the excess as suggested profit.
-    if (excess > 0) setSettleProfit(excess.toFixed(2));
+    if (breakdown.excess > 0) setSettleProfit(breakdown.excess.toFixed(2));
   };
 
   const handleSettlementProfitChange = (value: string) => {
