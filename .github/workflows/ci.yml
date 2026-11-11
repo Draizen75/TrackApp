@@ -120,3 +120,14 @@ jobs:
           if-no-files-found: error
           include-hidden-files: true
           retention-days: 7
+
+      # The emulator test script already builds and installs this exact APK.
+      # Upload it so the same tested build can be installed on a physical device.
+      - name: Upload Android APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TrackApp-Android-APK
+          path: android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: warn
+          retention-days: 14
