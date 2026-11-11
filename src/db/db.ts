@@ -324,10 +324,17 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
           ELSE target.remaining - (fifo_total.amount - COALESCE((SELECT SUM(CASE WHEN prior.remaining > 0 THEN prior.remaining ELSE 0 END) FROM debt_remaining prior WHERE prior.created_at < target.created_at OR (prior.created_at = target.created_at AND prior.id < target.id)), 0))
         END FROM target CROSS JOIN fifo_total
       ) + 0.000001 THEN RAISE(ABORT, 'Debt payment cannot exceed the selected debt balance.') END;
-      SELECT CASE WHEN OLD.is_debt = 1 AND EXISTS (SELECT 1 FROM transactions WHERE target_debt_id = OLD.id) AND (
+      SELECT CASE WHEN OLD.is_debt = 1 AND (
+        EXISTS (SELECT 1 FROM transactions payment WHERE payment.target_debt_id = OLD.id) OR
+        EXISTS (SELECT 1 FROM transactions payment WHERE payment.customer_id = OLD.customer_id
+          AND payment.type = 'DEBT_PAYMENT'
+          AND (julianday(payment.created_at) > julianday(OLD.created_at) OR
+            (julianday(payment.created_at) = julianday(OLD.created_at) AND payment.id > OLD.id))
+        )
+      ) AND (
         NEW.is_debt != 1 OR NEW.customer_id IS NOT OLD.customer_id OR NEW.amount != OLD.amount OR
         NEW.fee != OLD.fee OR NEW.deduct_fee != OLD.deduct_fee
-      ) THEN RAISE(ABORT, 'Cannot modify a debt with targeted payments. Delete its targeted payments first.') END;
+      ) THEN RAISE(ABORT, 'Cannot modify a debt after payments may have been allocated to it. Reverse dependent payments first.') END;
       SELECT CASE WHEN NEW.type = 'DEBT_PAYMENT' AND NEW.amount > (
         SELECT COALESCE(SUM(CASE WHEN is_debt = 1 THEN amount + CASE WHEN deduct_fee = 1 THEN 0 ELSE fee END ELSE 0 END), 0) -
                COALESCE(SUM(CASE WHEN type = 'DEBT_PAYMENT' THEN amount ELSE 0 END), 0)
@@ -338,9 +345,16 @@ export async function migrateDbIfNeeded(db: SQLite.SQLiteDatabase) {
     CREATE TRIGGER tr_transaction_validate_delete
     BEFORE DELETE ON transactions
     FOR EACH ROW
-    WHEN OLD.is_debt = 1 AND EXISTS (SELECT 1 FROM transactions WHERE target_debt_id = OLD.id)
+    WHEN OLD.is_debt = 1 AND (
+      EXISTS (SELECT 1 FROM transactions payment WHERE payment.target_debt_id = OLD.id) OR
+      EXISTS (SELECT 1 FROM transactions payment WHERE payment.customer_id = OLD.customer_id
+        AND payment.type = 'DEBT_PAYMENT'
+        AND (julianday(payment.created_at) > julianday(OLD.created_at) OR
+          (julianday(payment.created_at) = julianday(OLD.created_at) AND payment.id > OLD.id))
+      )
+    )
     BEGIN
-      SELECT RAISE(ABORT, 'Cannot delete a debt with targeted payments. Delete its targeted payments first.');
+      SELECT RAISE(ABORT, 'Cannot delete a debt after payments may have been allocated to it. Reverse dependent payments first.');
     END;
 
     CREATE TRIGGER tr_customer_delete_with_balance_guard
