@@ -91,14 +91,14 @@ const TransactionCard = React.memo(function TransactionCard({
     <View
       style={{
         borderRadius: ledgerRadius.card,
-        padding: compact ? 16 : 14,
+        padding: compact ? 12 : 14,
         borderWidth: 1,
         borderColor: C.border,
         backgroundColor: C.surface,
-        marginBottom: 12,
-        flexDirection: compact ? 'column' : 'row',
+        marginBottom: 10,
+        flexDirection: 'row',
         justifyContent: 'space-between',
-        alignItems: compact ? 'stretch' : 'center',
+        alignItems: 'center',
         minWidth: 0,
       }}
     >
@@ -111,15 +111,14 @@ const TransactionCard = React.memo(function TransactionCard({
         style={{
           flex: 1,
           minWidth: 0,
-          marginRight: compact ? 0 : 12,
-          marginBottom: compact ? 8 : 0,
-          flexDirection: 'row',
+          marginRight: compact ? 8 : 12,
+          flexDirection: compact ? 'column' : 'row',
           justifyContent: 'space-between',
-          alignItems: 'center',
+          alignItems: compact ? 'stretch' : 'center',
         }}
       >
-        <View style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+        <View style={{ flex: 1, minWidth: 0, marginRight: compact ? 0 : 12 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: compact ? 5 : 8, flexWrap: 'wrap' }}>
             <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: typeDetails.bg, borderWidth: 1, borderColor: typeDetails.border }}>
               <Text style={{ fontSize: 10, fontWeight: '900', textTransform: 'uppercase', color: typeDetails.text }}>
                 {typeDetails.label}
@@ -134,7 +133,7 @@ const TransactionCard = React.memo(function TransactionCard({
             )}
           </View>
 
-          <Text style={{ color: C.text3, fontSize: 11, marginBottom: 7 }}>{formattedTime}</Text>
+          <Text style={{ color: C.text3, fontSize: 11, marginBottom: compact ? 5 : 7 }}>{formattedTime}</Text>
           <Text
             style={{ color: C.text1, fontSize: 14, fontWeight: '700', marginBottom: 4, flexShrink: 1 }}
             numberOfLines={compact ? 2 : 1}
@@ -147,7 +146,25 @@ const TransactionCard = React.memo(function TransactionCard({
           </Text>
         </View>
 
-        <View style={{ alignItems: 'flex-end', flexShrink: 0, minWidth: compact ? 96 : undefined }}>
+        {!compact && (
+          <View style={{ alignItems: 'flex-end', flexShrink: 0 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, marginBottom: 2 }}>
+              <Text style={{ color: C.text1, fontSize: 15, fontWeight: '900', fontVariant: ['tabular-nums'] }}>
+                ₱{transaction.amount.toFixed(2)}
+              </Text>
+              <ChevronRight size={14} color={C.text3} />
+            </View>
+            {transaction.fee > 0 && (
+              <Text style={{ color: C.accent, fontSize: 11, fontWeight: '700', marginTop: 2, textAlign: 'right' }}>
+                Fee: +₱{transaction.fee.toFixed(2)}
+              </Text>
+            )}
+          </View>
+        )}
+      </TouchableOpacity>
+
+      {compact ? (
+        <View style={{ width: 118, flexShrink: 0, alignItems: 'flex-end', justifyContent: 'center' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, marginBottom: 2 }}>
             <Text style={{ color: C.text1, fontSize: 15, fontWeight: '900', fontVariant: ['tabular-nums'] }}>
               ₱{transaction.amount.toFixed(2)}
@@ -159,52 +176,71 @@ const TransactionCard = React.memo(function TransactionCard({
               Fee: +₱{transaction.fee.toFixed(2)}
             </Text>
           )}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 4 }}>
+            {transaction.is_debt === 1 && transaction.customer_id != null && (
+              <TouchableOpacity
+                onPress={() => onSettleDebt(transaction)}
+                accessibilityRole="button"
+                accessibilityLabel="Settle selected debt"
+                hitSlop={6}
+                style={{ width: 32, height: 30, justifyContent: 'center', alignItems: 'center' }}
+              >
+                <Coins size={15} color={C.success} />
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              onPress={() => onEdit(transaction)}
+              accessibilityRole="button"
+              accessibilityLabel="Edit transaction"
+              hitSlop={6}
+              style={{ width: 32, height: 30, alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Pencil size={15} color={C.accent} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => onDelete(transaction.id)}
+              accessibilityRole="button"
+              accessibilityLabel="Delete transaction"
+              hitSlop={6}
+              style={{ width: 32, height: 30, alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Trash2 size={15} color={C.text3} />
+            </TouchableOpacity>
+          </View>
         </View>
-      </TouchableOpacity>
-
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'flex-end',
-          gap: compact ? 8 : 4,
-          width: compact ? '100%' : undefined,
-          paddingTop: compact ? 8 : 0,
-          marginTop: compact ? 2 : 0,
-          borderTopWidth: compact ? 1 : 0,
-          borderTopColor: C.border,
-        }}
-      >
-        {transaction.is_debt === 1 && transaction.customer_id != null && (
+      ) : (
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+          {transaction.is_debt === 1 && transaction.customer_id != null && (
+            <TouchableOpacity
+              onPress={() => onSettleDebt(transaction)}
+              accessibilityRole="button"
+              accessibilityLabel="Settle selected debt"
+              hitSlop={8}
+              style={{ width: 44, height: 40, justifyContent: 'center', alignItems: 'center' }}
+            >
+              <Coins size={16} color={C.success} />
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
-            onPress={() => onSettleDebt(transaction)}
+            onPress={() => onEdit(transaction)}
             accessibilityRole="button"
-            accessibilityLabel="Settle selected debt"
+            accessibilityLabel="Edit transaction"
             hitSlop={8}
-            style={{ width: 44, height: 40, justifyContent: 'center', alignItems: 'center' }}
+            style={{ width: 44, height: 40, alignItems: 'center', justifyContent: 'center' }}
           >
-            <Coins size={16} color={C.success} />
+            <Pencil size={16} color={C.accent} />
           </TouchableOpacity>
-        )}
-        <TouchableOpacity
-          onPress={() => onEdit(transaction)}
-          accessibilityRole="button"
-          accessibilityLabel="Edit transaction"
-          hitSlop={8}
-          style={{ width: 44, height: 40, alignItems: 'center', justifyContent: 'center' }}
-        >
-          <Pencil size={16} color={C.accent} />
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => onDelete(transaction.id)}
-          accessibilityRole="button"
-          accessibilityLabel="Delete transaction"
-          hitSlop={8}
-          style={{ width: 44, height: 40, alignItems: 'center', justifyContent: 'center' }}
-        >
-          <Trash2 size={16} color={C.text3} />
-        </TouchableOpacity>
-      </View>
+          <TouchableOpacity
+            onPress={() => onDelete(transaction.id)}
+            accessibilityRole="button"
+            accessibilityLabel="Delete transaction"
+            hitSlop={8}
+            style={{ width: 44, height: 40, alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Trash2 size={16} color={C.text3} />
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 });

@@ -51,13 +51,23 @@ appId: com.draizen.TrackApp
     id: "wallet-balance-input"
 - eraseText: 20
 - inputText: "1000"
-# Dismiss the numeric keyboard first. The wallet editor now handles Android
-# back by dismissing the IME without closing the modal.
+# The hosted Pixel emulator may show a launcher ANR over the app while
+# the numeric keyboard is open. Dismiss it, then hide the IME.
+- tapOn:
+    text: "Wait"
+    optional: true
 - hideKeyboard
-- assertVisible: "Confirm Balance Override"
+# A second optional dismissal handles an ANR that appears during IME teardown.
+- tapOn:
+    text: "Wait"
+    optional: true
+# Locate the confirm control by its stable test ID, not visible copy.
+- extendedWaitUntil:
+    visible:
+      id: "confirm-wallet-balance"
+    timeout: 10000
 - tapOn:
     id: "confirm-wallet-balance"
-- extendedWaitUntil:
     visible: "₱1,000.00"
     timeout: 15000
 
