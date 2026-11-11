@@ -1327,7 +1327,7 @@ export default function DebtorsScreen() {
                 </TouchableOpacity>
               </View>
 
-              <Text style={{ color: C.text3, fontSize: 11, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 8 }}>Debt principal payment</Text>
+              <Text style={{ color: C.text3, fontSize: 11, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 8 }}>Debt payment amount</Text>
               <TextInput
                 testID="settlement-total-received"
                 accessibilityLabel="Settlement total received"
