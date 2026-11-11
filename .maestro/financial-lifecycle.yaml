@@ -53,9 +53,12 @@ appId: com.draizen.TrackApp
 - tapOn:
     text: "Wait"
     optional: true
-# Locate the confirm control by its stable test ID, not visible copy.
+# Verify the actual button label, then tap it by its stable test ID.
+- assertVisible: "Confirm Balance Override"
 - tapOn:
     id: "confirm-wallet-balance"
+# Verify the funded balance after the save completes.
+- extendedWaitUntil:
     visible: "₱1,000.00"
     timeout: 15000
 
