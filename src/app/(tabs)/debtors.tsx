@@ -371,10 +371,10 @@ export default function DebtorsScreen() {
     }
     // The entered amount is the total collected. It must be fully accounted
     // for as debt-applied amount plus extra profit; otherwise wallet float and ledger
-    // totals silently diverge. A zero-principal profit-only entry remains valid.
+    // totals silently diverge. A zero-debt-applied profit-only entry remains valid.
     if (!isSettlementBreakdownBalanced(received, amount, profit)) {
       setSettlementNotice({
-        message: `Total received (₱${received.toFixed(2)}) must equal debt balance paid (₱${amount.toFixed(2)}) plus extra profit (₱${profit.toFixed(2)}). Keep the suggested profit or adjust the received amount.`,
+        message: `Total received (₱${received.toFixed(2)}) must equal amount applied to debt (₱${amount.toFixed(2)}) plus extra profit (₱${profit.toFixed(2)}). Keep the suggested profit or adjust the received amount.`,
         type: 'error',
       });
       return;
