@@ -73,6 +73,11 @@ describe('fee-first debt payment preview', () => {
   });
 
   it('applies fee-first allocation to each explicitly selected debt in ledger order', () => {
+    const firstDebt: Transaction = {
+      ...originalDebt,
+      amount: 100,
+      fee: 10,
+    };
     const secondDebt: Transaction = {
       ...originalDebt,
       id: 102,
@@ -80,7 +85,7 @@ describe('fee-first debt payment preview', () => {
       fee: 20,
       created_at: '2026-11-02T00:00:00.000Z',
     };
-    expect(calculateDebtPaymentPreview([originalDebt, secondDebt], 115, 0, [101, 102])).toEqual({
+    expect(calculateDebtPaymentPreview([firstDebt, secondDebt], 115, 0, [101, 102])).toEqual({
       contractualFeePaid: 15,
       principalPaid: 100,
       extraProfitPaid: 0,
