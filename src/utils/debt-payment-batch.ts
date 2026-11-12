@@ -9,15 +9,15 @@ export type TargetedDebtPayment = {
 };
 
 /**
- * Splits one received principal amount across explicitly selected debts.
- * The caller supplies debts in their ledger order, making partial payments
- * deterministic and never allowing a selected debt to be overpaid.
+ * Splits one amount applied to debt across explicitly selected debts.
+ * Each outstanding balance includes its unpaid contractual fee and principal;
+ * the ledger applies each allocated amount to the fee first, then principal.
  */
 export function allocateTargetedDebtPayment(
   selectedDebts: TargetedDebtBalance[],
-  receivedAmount: number,
+  debtAppliedAmount: number,
 ): TargetedDebtPayment[] {
-  let remaining = receivedAmount;
+  let remaining = debtAppliedAmount;
   const payments: TargetedDebtPayment[] = [];
 
   for (const debt of selectedDebts) {
@@ -45,12 +45,12 @@ export type TargetedDebtPaymentRecord = {
  */
 export function buildTargetedDebtPaymentRecords(
   selectedDebts: TargetedDebtBalance[],
-  principalAmount: number,
+  debtAppliedAmount: number,
   extraProfit: number,
 ): TargetedDebtPaymentRecord[] {
   const plan = selectedDebts.length
-    ? allocateTargetedDebtPayment(selectedDebts, principalAmount)
-    : [{ targetDebtId: null, amount: principalAmount }];
+    ? allocateTargetedDebtPayment(selectedDebts, debtAppliedAmount)
+    : [{ targetDebtId: null, amount: debtAppliedAmount }];
   const rows = plan.length
     ? plan
     : [{ targetDebtId: selectedDebts[0]?.id ?? null, amount: 0 }];
