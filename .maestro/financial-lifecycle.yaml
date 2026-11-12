@@ -122,7 +122,7 @@ appId: com.draizen.TrackApp
 # Dismiss the IME; the settlement modal now handles Android back safely.
 - hideKeyboard
 - assertVisible: "Confirm Payment"
-- assertVisible: "Debt balance applied"
+- assertVisible: "Amount applied to debt"
 - assertVisible: "₱40.00"
 - tapOn: "Confirm Payment"
 - extendedWaitUntil:
@@ -170,7 +170,7 @@ appId: com.draizen.TrackApp
 - hideKeyboard
 # Confirm the button is exposed after the keyboard is dismissed.
 - assertVisible: "Confirm Payment"
-- assertVisible: "Debt balance applied"
+- assertVisible: "Amount applied to debt"
 - assertVisible: "₱60.00"
 - assertVisible: "Extra profit"
 - assertVisible: "₱5.00"
