@@ -11,6 +11,7 @@ import { ledgerColors as C, ledgerRadius } from '@/theme/ledger';
 import { getHistoryDateBounds, type HistoryDateRange } from '@/utils/history-date-range';
 import { useScreenFocus } from '@/hooks/useScreenFocus';
 import { getReceiptPaymentBreakdown } from '@/utils/transaction-receipt';
+import { calculateDebtPaymentBreakdowns } from '@/utils/debt-payment-preview';
 
 // ─── Obsidian & Gold Design ────────────────────────────────────────────────────
 const clearZeroIfNeeded = (value: string, setter: (value: string) => void) => {
@@ -156,7 +157,7 @@ const TransactionCard = React.memo(function TransactionCard({
             </View>
             {transaction.fee > 0 && (
               <Text style={{ color: C.accent, fontSize: 11, fontWeight: '700', marginTop: 2, textAlign: 'right' }}>
-                Fee: +₱{transaction.fee.toFixed(2)}
+                {transaction.type === 'DEBT_PAYMENT' ? 'Extra profit: ' : 'Fee: '}+₱{transaction.fee.toFixed(2)}
               </Text>
             )}
           </View>
@@ -173,7 +174,7 @@ const TransactionCard = React.memo(function TransactionCard({
           </View>
           {transaction.fee > 0 && (
             <Text style={{ color: C.accent, fontSize: 11, fontWeight: '700', marginTop: 2, textAlign: 'right' }}>
-              Fee: +₱{transaction.fee.toFixed(2)}
+              {transaction.type === 'DEBT_PAYMENT' ? 'Extra profit: ' : 'Fee: '}+₱{transaction.fee.toFixed(2)}
             </Text>
           )}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 4 }}>
@@ -313,6 +314,10 @@ export default function HistoryScreen() {
     if (!detailTx || detailTx.type !== 'DEBT_PAYMENT' || !Array.isArray(detailDebtTransactions)) return null;
     const outstandingByDebtId = getDebtOutstandingById(detailDebtTransactions);
     return Array.from(outstandingByDebtId.values()).reduce((total, amount) => total + amount, 0);
+  }, [detailTx, detailDebtTransactions]);
+  const detailPaymentBreakdown = useMemo(() => {
+    if (!detailTx || detailTx.type !== 'DEBT_PAYMENT' || !Array.isArray(detailDebtTransactions)) return null;
+    return calculateDebtPaymentBreakdowns(detailDebtTransactions).get(detailTx.id) || null;
   }, [detailTx, detailDebtTransactions]);
   const [editAmount, setEditAmount] = useState('');
   const [editFee, setEditFee] = useState('');
@@ -823,7 +828,7 @@ export default function HistoryScreen() {
                   minute: '2-digit',
                 }).format(new Date(detailTx.created_at))
               : 'N/A';
-            const { principal, extraProfit, totalReceived } = getReceiptPaymentBreakdown(detailTx);
+            const { debtApplied, extraProfit, totalReceived } = getReceiptPaymentBreakdown(detailTx);
 
             const ReceiptRow = ({ label, value, valueColor = C.text1 }: { label: string; value: string; valueColor?: string }) => (
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 9 }}>
@@ -864,14 +869,24 @@ export default function HistoryScreen() {
                       {isDebtPayment ? 'Total payment received' : 'Transaction amount'}
                     </Text>
                     <Text style={{ color: C.accent, fontSize: 34, fontWeight: '900', marginTop: 5, fontVariant: ['tabular-nums'] }}>
-                      ₱{(isDebtPayment ? totalReceived : principal).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      ₱{(isDebtPayment ? totalReceived : debtApplied).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Text>
                     <Text style={{ color: C.text3, fontSize: 11, marginTop: 8 }}>{formattedDate}</Text>
                     {isDebtPayment && (
                       <View style={{ marginTop: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: C.border }}>
                         <Text style={{ color: C.text2, fontSize: 11, fontWeight: '800', marginBottom: 4 }}>Payment breakdown</Text>
-                        <ReceiptRow label="Principal paid" value={`₱${principal.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
-                        <ReceiptRow label="Extra profit / interest" value={`₱${extraProfit.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} valueColor={C.accent} />
+                        {detailPaymentBreakdown ? (
+                          <>
+                            <ReceiptRow label="Initial fee collected first" value={`₱${detailPaymentBreakdown.contractualFeePaid.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} valueColor={C.success} />
+                            <ReceiptRow label="Principal repaid" value={`₱${detailPaymentBreakdown.principalPaid.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
+                            <ReceiptRow label="Extra profit / interest" value={`₱${detailPaymentBreakdown.extraProfitPaid.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} valueColor={C.accent} />
+                          </>
+                        ) : (
+                          <>
+                            <ReceiptRow label="Debt amount applied (fee first)" value={`₱${debtApplied.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
+                            <ReceiptRow label="Extra profit / interest" value={`₱${extraProfit.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} valueColor={C.accent} />
+                          </>
+                        )}
                         <View style={{ borderTopWidth: 1, borderTopColor: C.border, marginTop: 4, paddingTop: 4 }}>
                           <ReceiptRow label="Total received" value={`₱${totalReceived.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} valueColor={C.text1} />
                         </View>
