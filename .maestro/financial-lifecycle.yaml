@@ -172,7 +172,7 @@ appId: com.draizen.TrackApp
 - assertVisible: "Confirm Payment"
 - assertVisible: "Amount applied to debt"
 - assertVisible: "₱60.00"
-- assertVisible: "Extra profit"
+- assertVisible: "Extra profit (additional)"
 - assertVisible: "₱5.00"
 - tapOn: "Confirm Payment"
 
