@@ -1,5 +1,6 @@
 import { migrateDbIfNeeded } from '@/db/db';
 import { buildTargetedDebtPaymentRecords } from '@/utils/debt-payment-batch';
+import { calculateDebtPaymentBreakdowns } from '@/utils/debt-payment-preview';
 import {
   useInfiniteQuery,
   useMutation,
@@ -51,6 +52,8 @@ export interface Transaction {
   is_debt: number;
   deduct_fee: number;
   target_debt_id?: number | null;
+  contractual_fee_paid?: number;
+  principal_paid?: number;
   created_at: string;
 }
 
@@ -1323,13 +1326,21 @@ const getDashboardMetrics = (
   const customerNamesById = new Map<number, string>(
     (db.customers || []).map((customer: any) => [Number(customer.id), String(customer.name || '')])
   );
+  const debtPaymentBreakdowns = calculateDebtPaymentBreakdowns(transactions);
   const recentTransactions = [...transactions]
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime() || b.id - a.id)
     .slice(0, 10)
-    .map(tx => ({
-      ...tx,
-      customer_name: tx.customer_id == null ? null : customerNamesById.get(tx.customer_id) || null,
-    }));
+    .map(tx => {
+      const breakdown = tx.type === 'DEBT_PAYMENT' ? debtPaymentBreakdowns.get(tx.id) : null;
+      return {
+        ...tx,
+        customer_name: tx.customer_id == null ? null : customerNamesById.get(tx.customer_id) || null,
+        ...(breakdown ? {
+          contractual_fee_paid: breakdown.contractualFeePaid,
+          principal_paid: breakdown.principalPaid,
+        } : {}),
+      };
+    });
 
   // Daily collected earnings and recorded fees for the selected range.
   const dailyProfits: DailyProfitItem[] = [];
