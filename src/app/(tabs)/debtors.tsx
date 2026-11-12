@@ -27,6 +27,7 @@ import { LedgerEmptyState, LedgerErrorState, LedgerLoadingState } from '@/compon
 import { getDebtorPaymentLabel, isPaymentWithinDays } from '@/utils/debtor-payment-label';
 import { useScreenFocus } from '@/hooks/useScreenFocus';
 import { getSettlementPrincipalBreakdown, isValidMoneyInput } from '@/utils/strict-money';
+import { calculateDebtPaymentPreview } from '@/utils/debt-payment-preview';
 
 // ─── Obsidian & Gold Design ────────────────────────────────────────────────────
 export default function DebtorsScreen() {
@@ -58,7 +59,8 @@ export default function DebtorsScreen() {
   const [selectedDebtIds, setSelectedDebtIds] = useState<number[]>([]);
   const [isDebtSelectionMode, setIsDebtSelectionMode] = useState(false);
   const [settleAmount, setSettleAmount] = useState('');
-  // Keep principal independent from extra profit; total received is calculated for the preview.
+  // Debt-applied amount is distinct from extra profit. The ledger allocates it to
+  // outstanding contractual fees first, then to principal.
   const [settlePrincipal, setSettlePrincipal] = useState(0);
   const [settleProfit, setSettleProfit] = useState('');
   const [settleChannel, setSettleChannel] = useState<string>('PHYSICAL_CASH');
@@ -76,10 +78,10 @@ export default function DebtorsScreen() {
   const [sortMode, setSortMode] = useState<'overdue' | 'recent_activity' | 'largest' | 'recent_payment'>('recent_activity');
   const [activeQuickFilter, setActiveQuickFilter] = useState<'all' | 'overdue' | 'paid_recently' | 'no_payment'>('all');
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
-  const ledgerCustomerId = detailModalVisible
+  const ledgerCustomerId = detailModalVisible || modalVisible
     ? selectedDebtor?.id ?? null
     : linkedDebt?.customer_id ?? null;
-  const shouldLoadLedgerHistory = detailModalVisible || linkedDebt != null;
+  const shouldLoadLedgerHistory = detailModalVisible || modalVisible || linkedDebt != null;
   const {
     data: debtorLedgerHistory = [],
     isLoading: isDebtorLedgerLoading,
@@ -96,6 +98,19 @@ export default function DebtorsScreen() {
   const activeSelectedDebtIds = useMemo(
     () => selectedDebtIds.filter((debtId) => (outstandingByDebtId.get(debtId) || 0) > 0.01),
     [outstandingByDebtId, selectedDebtIds],
+  );
+  const settlementTargetDebtIds = activeSelectedDebtIds.length > 0
+    ? activeSelectedDebtIds
+    : selectedDebtEntry ? [selectedDebtEntry.id] : undefined;
+  const settlementProfitValue = settleProfit.trim() === '' ? 0 : Number(settleProfit);
+  const settlementPreview = useMemo(
+    () => calculateDebtPaymentPreview(
+      debtorLedgerHistory,
+      settlePrincipal,
+      Number.isFinite(settlementProfitValue) ? settlementProfitValue : 0,
+      settlementTargetDebtIds,
+    ),
+    [debtorLedgerHistory, settlePrincipal, settlementProfitValue, settlementTargetDebtIds],
   );
   const selectableDebtEntries = useMemo(
     () => debtorLedgerHistory.filter((transaction) => transaction.is_debt === 1 && (outstandingByDebtId.get(transaction.id) || 0) > 0.01),
@@ -1326,7 +1341,7 @@ export default function DebtorsScreen() {
                 </TouchableOpacity>
               </View>
 
-              <Text style={{ color: C.text3, fontSize: 11, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 8 }}>Debt payment amount</Text>
+              <Text style={{ color: C.text3, fontSize: 11, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 8 }}>Amount applied to debt</Text>
               <TextInput
                 testID="settlement-total-received"
                 accessibilityLabel="Settlement total received"
@@ -1374,30 +1389,34 @@ export default function DebtorsScreen() {
                 editable={!settleMutation.isPending}
               />
               <Text style={{ color: C.text3, fontSize: 11, lineHeight: 17, marginTop: -8, marginBottom: 14 }}>
-                Suggested automatically when the amount exceeds the selected outstanding debt balance. You can edit it or record profit only. Extra profit never reduces principal.
+                Applied to unpaid initial fees first, then principal. Extra profit is separate, increases wallet cash received, and does not reduce the debt balance.
               </Text>
 
               <View style={{ backgroundColor: C.bg, borderRadius: ledgerRadius.card, borderWidth: 1, borderColor: C.border, padding: ledgerSpacing.md, marginBottom: ledgerSpacing.lg }}>
                 <Text style={{ color: C.text2, fontSize: 10, fontWeight: '800', letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 10 }}>Payment breakdown preview</Text>
-                {(() => {
-                  const preview = { principal: settlePrincipal };
-                  const profit = settleProfit.trim() === '' ? 0 : Number(settleProfit);
-                  return <>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 7 }}>
-                      <Text style={{ color: C.text3, fontSize: 12 }}>Debt balance applied</Text>
-                      <Text style={{ color: C.text1, fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] }}>₱{preview.principal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 9 }}>
-                      <Text style={{ color: C.text3, fontSize: 12 }}>Extra profit</Text>
-                      <Text style={{ color: C.accent, fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] }}>₱{(Number.isFinite(profit) ? profit : 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
-                    </View>
-                    <View style={{ height: 1, backgroundColor: C.border, marginBottom: 9 }} />
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                      <Text style={{ color: C.text2, fontSize: 12, fontWeight: '700' }}>Total received</Text>
-                      <Text style={{ color: C.success, fontSize: 14, fontWeight: '900', fontVariant: ['tabular-nums'] }}>₱{(settlePrincipal + (Number.isFinite(profit) ? profit : 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
-                    </View>
-                  </>;
-                })()}
+                {settlementPreview.contractualFeePaid > 0 && (
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 7 }}>
+                    <Text style={{ color: C.text3, fontSize: 12 }}>Initial fee collected first</Text>
+                    <Text style={{ color: C.success, fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] }}>₱{settlementPreview.contractualFeePaid.toFixed(2)}</Text>
+                  </View>
+                )}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 7 }}>
+                  <Text style={{ color: C.text3, fontSize: 12 }}>Principal repaid</Text>
+                  <Text style={{ color: C.text1, fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] }}>₱{settlementPreview.principalPaid.toFixed(2)}</Text>
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 9 }}>
+                  <Text style={{ color: C.text3, fontSize: 12 }}>Extra profit (additional)</Text>
+                  <Text style={{ color: C.accent, fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] }}>₱{settlementPreview.extraProfitPaid.toFixed(2)}</Text>
+                </View>
+                <View style={{ height: 1, backgroundColor: C.border, marginBottom: 9 }} />
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 }}>
+                  <Text style={{ color: C.text2, fontSize: 12, fontWeight: '700' }}>Applied to debt</Text>
+                  <Text style={{ color: C.text1, fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] }}>₱{settlementPreview.debtApplied.toFixed(2)}</Text>
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <Text style={{ color: C.text2, fontSize: 12, fontWeight: '700' }}>Total received into wallet</Text>
+                  <Text style={{ color: C.success, fontSize: 14, fontWeight: '900', fontVariant: ['tabular-nums'] }}>₱{settlementPreview.totalReceived.toFixed(2)}</Text>
+                </View>
               </View>
               <Text style={{ color: C.text3, fontSize: 11, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 8 }}>Deposit into wallet</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
@@ -1431,7 +1450,7 @@ export default function DebtorsScreen() {
 
               <GoldButton
                 onPress={submitSettlement}
-                disabled={settleMutation.isPending}
+                disabled={settleMutation.isPending || isDebtorLedgerLoading || isDebtorLedgerError}
                 loading={settleMutation.isPending}
                 label={settleMutation.isPending ? 'Recording payment...' : 'Confirm Payment'}
                 style={{ width: '100%' }}
