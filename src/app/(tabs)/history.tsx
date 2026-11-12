@@ -978,7 +978,7 @@ export default function HistoryScreen() {
               {/* Amount and Fee Row */}
               <View style={{ flexDirection: 'row', gap: 16 }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: C.text3, fontSize: 11, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>{selectedTx?.type === 'DEBT_PAYMENT' ? 'Principal Payment (PHP)' : 'Amount (PHP)'}</Text>
+                  <Text style={{ color: C.text3, fontSize: 11, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>{selectedTx?.type === 'DEBT_PAYMENT' ? 'Debt Amount Applied (PHP)' : 'Amount (PHP)'}</Text>
                   <TextInput
                     style={{
                       backgroundColor: C.bg,
