@@ -61,7 +61,7 @@ export default function DebtorsScreen() {
   const [settleAmount, setSettleAmount] = useState('');
   // Debt-applied amount is distinct from extra profit. The ledger allocates it to
   // outstanding contractual fees first, then to principal.
-  const [settlePrincipal, setSettlePrincipal] = useState(0);
+  const [settleDebtAmount, setSettleDebtAmount] = useState(0);
   const [settleProfit, setSettleProfit] = useState('');
   const [settleChannel, setSettleChannel] = useState<string>('PHYSICAL_CASH');
   const [modalVisible, setModalVisible] = useState(false);
@@ -127,7 +127,7 @@ export default function DebtorsScreen() {
     recent_payment: 'Recent payment',
   }[sortMode];
 
-  const getSettlementPrincipalCap = () => {
+  const getSettlementDebtCap = () => {
     if (!selectedDebtor) return 0;
     if (activeSelectedDebtIds.length > 0) {
       return activeSelectedDebtIds.reduce((total, debtId) => total + (outstandingByDebtId.get(debtId) || 0), 0);
