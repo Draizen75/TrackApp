@@ -110,11 +110,11 @@ export default function DebtorsScreen() {
   const settlementPreview = useMemo(
     () => calculateDebtPaymentPreview(
       debtorLedgerHistory,
-      settlePrincipal,
+      settleDebtAmount,
       Number.isFinite(settlementProfitValue) ? settlementProfitValue : 0,
       settlementTargetDebtIds,
     ),
-    [debtorLedgerHistory, settlePrincipal, settlementProfitValue, settlementTargetDebtIds],
+    [debtorLedgerHistory, settleDebtAmount, settlementProfitValue, settlementTargetDebtIds],
   );
   const selectableDebtEntries = useMemo(
     () => debtorLedgerHistory.filter((transaction) => transaction.is_debt === 1 && (outstandingByDebtId.get(transaction.id) || 0) > 0.01),
@@ -200,7 +200,7 @@ export default function DebtorsScreen() {
     setSelectedDebtor(debtor);
     setSelectedDebtEntry(null);
     setSelectedDebtIds([]);
-    setSettlePrincipal(debtor.balance);
+    setSettleDebtAmount(debtor.balance);
     setSettleAmount(debtor.balance.toFixed(2));
     setSettleProfit('');
     setModalVisible(true);
@@ -208,12 +208,12 @@ export default function DebtorsScreen() {
 
   const handleSettlementAmountChange = (value: string) => {
     setSettleAmount(value);
-    const breakdown = getSettlementPrincipalBreakdown(value, getSettlementPrincipalCap());
+    const breakdown = getSettlementPrincipalBreakdown(value, getSettlementDebtCap());
     if (!breakdown) return;
 
-    // Clearing the field is an explicit zero-principal payment, not an invalid
+    // Clearing the field is an explicit zero-debt-applied payment, not an invalid
     // edit. This keeps profit-only settlements independent from the last value.
-    setSettlePrincipal(breakdown.principal);
+    setSettleDebtAmount(breakdown.principal);
     // If the user enters more than the outstanding debt, preserve the existing
     // convenience of treating the excess as suggested profit.
     if (breakdown.excess > 0) setSettleProfit(breakdown.excess.toFixed(2));
@@ -361,7 +361,7 @@ export default function DebtorsScreen() {
       setSettlementNotice({ message: 'Enter a valid amount with no more than two decimal places.', type: 'error' });
       return;
     }
-    const amount = settlePrincipal;
+    const amount = settleDebtAmount;
     const profit = settleProfit.trim() === '' ? 0 : Number(settleProfit);
     const received = amount + profit;
 
@@ -370,7 +370,7 @@ export default function DebtorsScreen() {
       return;
     }
     // The entered amount is the total collected. It must be fully accounted
-    // for as principal plus extra profit; otherwise wallet float and ledger
+    // for as debt-applied amount plus extra profit; otherwise wallet float and ledger
     // totals silently diverge. A zero-principal profit-only entry remains valid.
     if (!isSettlementBreakdownBalanced(received, amount, profit)) {
       setSettlementNotice({
@@ -380,7 +380,7 @@ export default function DebtorsScreen() {
       return;
     }
     if (amount === 0 && profit <= 0) {
-      setSettlementNotice({ message: 'Enter a principal payment or extra profit/interest payment.', type: 'error' });
+      setSettlementNotice({ message: 'Enter a debt payment or extra profit/interest payment.', type: 'error' });
       return;
     }
     setSettlementNotice({ message: 'Recording debt payment…', type: 'info' });
@@ -408,7 +408,7 @@ export default function DebtorsScreen() {
       setSelectedDebtIds([]);
       setIsDebtSelectionMode(false);
       if (amount === 0) {
-        showToast(`Recorded PHP ${profit.toFixed(2)} interest for ${name}. Debt principal unchanged.`, 'success');
+        showToast(`Recorded PHP ${profit.toFixed(2)} interest for ${name}. Debt balance unchanged.`, 'success');
         return;
       }
       showToast(
@@ -534,7 +534,7 @@ export default function DebtorsScreen() {
     const openPayment = setTimeout(() => {
       setSelectedDebtor(debtor);
       setSelectedDebtEntry(debt);
-      setSettlePrincipal(outstanding);
+      setSettleDebtAmount(outstanding);
       setSettleAmount(outstanding.toFixed(2));
       setSettleProfit('');
       setDetailModalVisible(false);
@@ -563,7 +563,7 @@ export default function DebtorsScreen() {
     if (outstanding <= 0.01) return;
     setSelectedDebtEntry(debt);
     setSelectedDebtIds([]);
-    setSettlePrincipal(outstanding);
+    setSettleDebtAmount(outstanding);
     setSettleAmount(outstanding.toFixed(2));
     setSettleProfit('');
     setModalVisible(true);
@@ -579,11 +579,11 @@ export default function DebtorsScreen() {
   };
 
   const openBatchDebtPayment = () => {
-    const selectedTotal = getSettlementPrincipalCap();
+    const selectedTotal = getSettlementDebtCap();
     if (!selectedDebtor || activeSelectedDebtIds.length === 0 || selectedTotal <= 0.01) return;
     setSettlementNotice(null);
     setSelectedDebtEntry(null);
-    setSettlePrincipal(selectedTotal);
+    setSettleDebtAmount(selectedTotal);
     setSettleAmount(selectedTotal.toFixed(2));
     setSettleProfit('');
     setModalVisible(true);
@@ -1101,7 +1101,7 @@ export default function DebtorsScreen() {
                       style={{ minHeight: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: C.successDim, borderWidth: 1, borderColor: C.success }}
                     >
                       <Text style={{ color: C.success, fontSize: 12, fontWeight: '900' }}>
-                        Pay {activeSelectedDebtIds.length} selected · ₱{getSettlementPrincipalCap().toFixed(2)}
+                        Pay {activeSelectedDebtIds.length} selected · ₱{getSettlementDebtCap().toFixed(2)}
                       </Text>
                     </TouchableOpacity>
                   )}
@@ -1341,7 +1341,7 @@ export default function DebtorsScreen() {
                   <Text style={{ color: C.text3, fontSize: 10, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase' }}>Settle Ledger</Text>
                   <Text style={{ color: C.text1, fontSize: 18, fontWeight: '800', marginTop: 2 }}>
                     {activeSelectedDebtIds.length > 0
-                      ? `Pay ${activeSelectedDebtIds.length} selected debts: ₱${getSettlementPrincipalCap().toFixed(2)}`
+                      ? `Pay ${activeSelectedDebtIds.length} selected debts: ₱${getSettlementDebtCap().toFixed(2)}`
                       : selectedDebtEntry
                         ? `Pay selected debt: ₱${(outstandingByDebtId.get(selectedDebtEntry.id) || 0).toFixed(2)}`
                         : `Pay Debt: ${selectedDebtor?.name}`}
