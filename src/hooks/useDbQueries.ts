@@ -1734,13 +1734,23 @@ export function useWebDbQueries() {
       queryFn: async () => {
         const db = await getWebDb();
         const customerNamesById = new Map((db.customers || []).map((customer: any) => [customer.id, customer.name]));
-        return [...(db.transactions || [])]
+        const dayTransactions = [...(db.transactions || [])]
           .filter((transaction: Transaction) => extractStoredDateKey(transaction.created_at) === dateKey)
-          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-          .map((transaction: Transaction) => ({
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        const customerIds = new Set(dayTransactions.map((transaction: Transaction) => transaction.customer_id).filter((id): id is number => id != null));
+        const relevantLedger = (db.transactions || []).filter((transaction: Transaction) => transaction.customer_id != null && customerIds.has(transaction.customer_id) && (transaction.is_debt === 1 || transaction.type === 'DEBT_PAYMENT'));
+        const breakdowns = calculateDebtPaymentBreakdowns(relevantLedger);
+        return dayTransactions.map((transaction: Transaction) => {
+          const breakdown = transaction.type === 'DEBT_PAYMENT' ? breakdowns.get(transaction.id) : null;
+          return {
             ...transaction,
             customer_name: customerNamesById.get(transaction.customer_id) || null,
-          }));
+            ...(breakdown ? {
+              contractual_fee_paid: breakdown.contractualFeePaid,
+              principal_paid: breakdown.principalPaid,
+            } : {}),
+          };
+        });
       },
     });
   };
@@ -2774,13 +2784,31 @@ export function useDbQueries() {
         const rangeEndDate = new Date(`${dateKey}T00:00:00`);
         rangeEndDate.setDate(rangeEndDate.getDate() + 1);
         const rangeEnd = rangeEndDate.toISOString();
-        return await db.getAllAsync<Transaction>(`
+        const dayTransactions = await db.getAllAsync<Transaction>(`
           SELECT t.*, c.name as customer_name
           FROM transactions t
           LEFT JOIN customers c ON t.customer_id = c.id
           WHERE t.created_at >= ? AND t.created_at < ?
-          ORDER BY t.created_at DESC
+          ORDER BY t.created_at DESC, t.id DESC
         `, [rangeStart, rangeEnd]);
+        const customerIds = [...new Set(dayTransactions.map(transaction => transaction.customer_id).filter((id): id is number => id != null))];
+        if (customerIds.length === 0) return dayTransactions;
+        const placeholders = customerIds.map(() => '?').join(', ');
+        const relevantLedger = await db.getAllAsync<Transaction>(`
+          SELECT * FROM transactions
+          WHERE customer_id IN (${placeholders})
+            AND (is_debt = 1 OR type = 'DEBT_PAYMENT')
+          ORDER BY created_at ASC, id ASC
+        `, customerIds);
+        const breakdowns = calculateDebtPaymentBreakdowns(relevantLedger);
+        return dayTransactions.map(transaction => {
+          const breakdown = transaction.type === 'DEBT_PAYMENT' ? breakdowns.get(transaction.id) : null;
+          return breakdown ? {
+            ...transaction,
+            contractual_fee_paid: breakdown.contractualFeePaid,
+            principal_paid: breakdown.principalPaid,
+          } : transaction;
+        });
       },
     });
   };
