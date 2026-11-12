@@ -1,4 +1,4 @@
-import { calculateDebtPaymentPreview } from '@/utils/debt-payment-preview';
+import { calculateDebtPaymentBreakdowns, calculateDebtPaymentPreview } from '@/utils/debt-payment-preview';
 import {
   assertValidBackup,
   assertValidTransactionInput,
@@ -105,6 +105,42 @@ describe('fee-first debt payment preview', () => {
       extraProfitPaid: 5,
       debtApplied: 20,
       totalReceived: 25,
+    });
+  });
+
+  it('itemizes each recorded debt payment into initial fee, principal, and extra profit', () => {
+    const partial: Transaction = {
+      ...payment,
+      id: 104,
+      amount: 25,
+      fee: 3,
+      customer_id: 77,
+      target_debt_id: 101,
+      created_at: '2026-11-02T00:00:00.000Z',
+    };
+    const final: Transaction = {
+      ...payment,
+      id: 105,
+      amount: 2015,
+      fee: 2,
+      customer_id: 77,
+      target_debt_id: 101,
+      created_at: '2026-11-03T00:00:00.000Z',
+    };
+    const breakdowns = calculateDebtPaymentBreakdowns([originalDebt, partial, final]);
+    expect(breakdowns.get(partial.id)).toEqual({
+      contractualFeePaid: 25,
+      principalPaid: 0,
+      extraProfitPaid: 3,
+      debtApplied: 25,
+      totalReceived: 28,
+    });
+    expect(breakdowns.get(final.id)).toEqual({
+      contractualFeePaid: 15,
+      principalPaid: 2000,
+      extraProfitPaid: 2,
+      debtApplied: 2015,
+      totalReceived: 2017,
     });
   });
 
