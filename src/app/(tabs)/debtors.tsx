@@ -27,7 +27,7 @@ import { LedgerEmptyState, LedgerErrorState, LedgerLoadingState } from '@/compon
 import { getDebtorPaymentLabel, isPaymentWithinDays } from '@/utils/debtor-payment-label';
 import { useScreenFocus } from '@/hooks/useScreenFocus';
 import { getSettlementPrincipalBreakdown, isValidMoneyInput } from '@/utils/strict-money';
-import { calculateDebtPaymentPreview } from '@/utils/debt-payment-preview';
+import { calculateDebtPaymentBreakdowns, calculateDebtPaymentPreview } from '@/utils/debt-payment-preview';
 
 // ─── Obsidian & Gold Design ────────────────────────────────────────────────────
 export default function DebtorsScreen() {
@@ -93,6 +93,10 @@ export default function DebtorsScreen() {
   );
   const outstandingByDebtId = useMemo(
     () => getDebtOutstandingById(debtorLedgerHistory),
+    [debtorLedgerHistory],
+  );
+  const debtPaymentBreakdowns = useMemo(
+    () => calculateDebtPaymentBreakdowns(debtorLedgerHistory),
     [debtorLedgerHistory],
   );
   const activeSelectedDebtIds = useMemo(
@@ -1169,6 +1173,20 @@ export default function DebtorsScreen() {
                           <Text style={{ color: C.text1, fontSize: 12, fontWeight: '700' }}>{getTxTypeLabel(tx.type)}</Text>
                         </View>
                         <Text style={{ color: C.text3, fontSize: 9 }}>{formattedDate} • via {getWalletLabel(tx.channel)}</Text>
+                        {isPayment && (() => {
+                          const breakdown = debtPaymentBreakdowns.get(tx.id);
+                          if (!breakdown) return null;
+                          const parts = [
+                            breakdown.contractualFeePaid > 0 ? `Initial fee ₱${breakdown.contractualFeePaid.toFixed(2)}` : null,
+                            breakdown.principalPaid > 0 ? `Principal ₱${breakdown.principalPaid.toFixed(2)}` : null,
+                            breakdown.extraProfitPaid > 0 ? `Extra profit ₱${breakdown.extraProfitPaid.toFixed(2)}` : null,
+                          ].filter(Boolean);
+                          return parts.length > 0 ? (
+                            <Text style={{ color: C.text3, fontSize: 9, marginTop: 3 }} numberOfLines={2}>
+                              {parts.join(' · ')}
+                            </Text>
+                          ) : null;
+                        })()}
                       </View>
                       <View style={{ alignItems: 'flex-end' }}>
                         <Text style={{ color: isPayment ? C.success : C.danger, fontSize: 13, fontWeight: '800' }}>{isPayment ? '-' : '+'}₱{txTotal.toFixed(2)}</Text>
@@ -1177,7 +1195,7 @@ export default function DebtorsScreen() {
                             {remainingDebtBalance > 0.01 ? `Remaining ₱${remainingDebtBalance.toFixed(2)}` : 'Fully paid'}
                           </Text>
                         )}
-                        {isPayment && tx.fee > 0 && <Text style={{ color: C.accent, fontSize: 10 }}>Profit paid PHP {tx.fee.toFixed(2)}</Text>}
+
                         {!isPayment && tx.fee > 0 && <Text style={{ color: C.text3, fontSize: 10 }}>{tx.deduct_fee === 1 ? `Deducted ₱${tx.fee.toFixed(2)} fee` : `Inc. ₱${tx.fee.toFixed(2)} fee`}</Text>}
                         {!isDebtSelectionMode && (
                           <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
