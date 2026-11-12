@@ -2401,6 +2401,30 @@ export function useDbQueries() {
           ORDER BY t.created_at DESC, t.id DESC
           LIMIT 10
         `);
+        const recentDebtCustomerIds = [...new Set(
+          recentTransactions
+            .filter(transaction => transaction.type === 'DEBT_PAYMENT' && transaction.customer_id != null)
+            .map(transaction => transaction.customer_id as number)
+        )];
+        let recentTransactionsWithBreakdown = recentTransactions;
+        if (recentDebtCustomerIds.length > 0) {
+          const placeholders = recentDebtCustomerIds.map(() => '?').join(', ');
+          const relevantLedger = await db.getAllAsync<Transaction>(`
+            SELECT * FROM transactions
+            WHERE customer_id IN (${placeholders})
+              AND (is_debt = 1 OR type = 'DEBT_PAYMENT')
+            ORDER BY created_at ASC, id ASC
+          `, recentDebtCustomerIds);
+          const breakdowns = calculateDebtPaymentBreakdowns(relevantLedger);
+          recentTransactionsWithBreakdown = recentTransactions.map(transaction => {
+            const breakdown = transaction.type === 'DEBT_PAYMENT' ? breakdowns.get(transaction.id) : null;
+            return breakdown ? {
+              ...transaction,
+              contractual_fee_paid: breakdown.contractualFeePaid,
+              principal_paid: breakdown.principalPaid,
+            } : transaction;
+          });
+        }
         const todayMetrics = dailyTransactionMetrics.get(todayStr);
         const todayTransactionsCount = todayMetrics?.txCount || 0;
         const debtAddedToday = todayMetrics?.debtAdded || 0;
@@ -2516,7 +2540,7 @@ export function useDbQueries() {
           pendingPrincipal: debtAllocation.pendingPrincipal,
           todayProfit: todaySummary.netProfit,
           wallets,
-          recentTransactions,
+          recentTransactions: recentTransactionsWithBreakdown,
           dailyProfits,
           earningsSummary,
           todayTransactionsCount,
