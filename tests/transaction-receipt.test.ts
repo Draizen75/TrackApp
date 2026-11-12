@@ -60,7 +60,7 @@ describe('transaction receipt payment breakdown', () => {
   it('keeps a batch profit-only record readable as one receipt', () => {
     const [row] = buildTargetedDebtPaymentRecords([{ id: 10, outstanding: 55 }], 0, 12);
     expect(getReceiptPaymentBreakdown({ type: 'DEBT_PAYMENT', amount: row.amount, fee: row.fee })).toEqual({
-      principal: 0,
+      debtApplied: 0,
       extraProfit: 12,
       totalReceived: 12,
     });
