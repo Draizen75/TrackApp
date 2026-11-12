@@ -1,3 +1,4 @@
+import { calculateDebtPaymentBreakdowns, calculateDebtPaymentPreview } from '@/utils/debt-payment-preview';
 import {
   assertValidBackup,
   assertValidTransactionInput,
@@ -50,6 +51,114 @@ const wallets = ['GCASH', 'MAYA', 'MAYA_BUSINESS', 'MARIBANK', 'PHYSICAL_CASH'].
   channel,
   balance: 100,
 }));
+
+describe('fee-first debt payment preview', () => {
+  const originalDebt: Transaction = {
+    ...debt,
+    id: 101,
+    amount: 2000,
+    fee: 40,
+    customer_id: 77,
+    created_at: '2026-11-01T00:00:00.000Z',
+  };
+
+  it('collects the original contractual fee before principal and keeps extra profit separate', () => {
+    expect(calculateDebtPaymentPreview([originalDebt], 1000, 20)).toEqual({
+      contractualFeePaid: 40,
+      principalPaid: 960,
+      extraProfitPaid: 20,
+      debtApplied: 1000,
+      totalReceived: 1020,
+    });
+  });
+
+  it('applies fee-first allocation to each explicitly selected debt in ledger order', () => {
+    const firstDebt: Transaction = {
+      ...originalDebt,
+      amount: 100,
+      fee: 10,
+    };
+    const secondDebt: Transaction = {
+      ...originalDebt,
+      id: 102,
+      amount: 200,
+      fee: 20,
+      created_at: '2026-11-02T00:00:00.000Z',
+    };
+    expect(calculateDebtPaymentPreview([firstDebt, secondDebt], 115, 0, [101, 102])).toEqual({
+      contractualFeePaid: 15,
+      principalPaid: 100,
+      extraProfitPaid: 0,
+      debtApplied: 115,
+      totalReceived: 115,
+    });
+  });
+
+  it('accounts for previous partial payments before previewing the next collection', () => {
+    const priorPayment: Transaction = {
+      ...payment,
+      id: 103,
+      amount: 25,
+      fee: 0,
+      customer_id: 77,
+      target_debt_id: 101,
+      created_at: '2026-11-02T00:00:00.000Z',
+    };
+    expect(calculateDebtPaymentPreview([originalDebt, priorPayment], 20, 5, [101])).toEqual({
+      contractualFeePaid: 15,
+      principalPaid: 5,
+      extraProfitPaid: 5,
+      debtApplied: 20,
+      totalReceived: 25,
+    });
+  });
+
+  it('itemizes each recorded debt payment into initial fee, principal, and extra profit', () => {
+    const partial: Transaction = {
+      ...payment,
+      id: 104,
+      amount: 25,
+      fee: 3,
+      customer_id: 77,
+      target_debt_id: 101,
+      created_at: '2026-11-02T00:00:00.000Z',
+    };
+    const final: Transaction = {
+      ...payment,
+      id: 105,
+      amount: 2015,
+      fee: 2,
+      customer_id: 77,
+      target_debt_id: 101,
+      created_at: '2026-11-03T00:00:00.000Z',
+    };
+    const breakdowns = calculateDebtPaymentBreakdowns([originalDebt, partial, final]);
+    expect(breakdowns.get(partial.id)).toEqual({
+      contractualFeePaid: 25,
+      principalPaid: 0,
+      extraProfitPaid: 3,
+      debtApplied: 25,
+      totalReceived: 28,
+    });
+    expect(breakdowns.get(final.id)).toEqual({
+      contractualFeePaid: 15,
+      principalPaid: 2000,
+      extraProfitPaid: 2,
+      debtApplied: 2015,
+      totalReceived: 2017,
+    });
+  });
+
+  it('preserves profit-only collections without reducing contractual fees or principal', () => {
+    expect(calculateDebtPaymentPreview([originalDebt], 0, 10)).toEqual({
+      contractualFeePaid: 0,
+      principalPaid: 0,
+      extraProfitPaid: 10,
+      debtApplied: 0,
+      totalReceived: 10,
+    });
+  });
+});
 
 describe('ledger safety rules', () => {
   it('counts contractual debt earnings only when collected, on the payment date', () => {

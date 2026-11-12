@@ -7,7 +7,7 @@ TrackApp is an Expo mobile ledger and counter-float manager for Sari-Sari store 
 - Ledger-safe money handling with cent-level rounding.
 - SQLite guards for wallet overdrafts, debt overpayments, invalid targeted payments, and invalid wallet/customer references.
 - Customer transaction history is preserved: customers with any ledger history cannot be deleted.
-- FIFO debt allocation, optional targeted debt payments, and separate contractual versus extra-payment earnings.
+- FIFO fee-first debt allocation (unpaid contractual fees before principal), optional targeted debt payments, and separate contractual versus extra-profit earnings.
 - Paginated transaction history and virtualized lists for responsive scrolling with larger ledgers.
 - Offline-first persistence: Expo SQLite on Android/iOS; IndexedDB on web, with migration from legacy localStorage data where available.
 - CSV and JSON backup export, validated backup restore, configurable fees, custom wallets, SMS reminders, and copy-to-clipboard fallback.

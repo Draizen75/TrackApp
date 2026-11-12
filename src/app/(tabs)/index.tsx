@@ -583,8 +583,11 @@ export default function DashboardScreen() {
                           <Text style={{ color: C.text1, fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
                             {typeDetails.label}{transaction.customer_name ? ` · ${transaction.customer_name}` : ''}
                           </Text>
-                          <Text style={{ color: C.text3, fontSize: 10, marginTop: 2 }} numberOfLines={1}>
-                            {transaction.channel}{transaction.fee > 0 ? ` · Fee ${transaction.fee.toFixed(2)}` : ''}
+                          <Text style={{ color: C.text3, fontSize: 10, marginTop: 2 }} numberOfLines={2}>
+                            {transaction.channel}
+                            {transaction.type === 'DEBT_PAYMENT'
+                              ? ` · Initial fee ₱${(transaction.contractual_fee_paid || 0).toFixed(2)} · Principal ₱${(transaction.principal_paid || 0).toFixed(2)}${transaction.fee > 0 ? ` · Extra profit ₱${transaction.fee.toFixed(2)}` : ''}`
+                              : transaction.fee > 0 ? ` · Fee ₱${transaction.fee.toFixed(2)}` : ''}
                           </Text>
                         </View>
                         <Text style={{ color: typeDetails.text, fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] }}>
@@ -649,7 +652,7 @@ export default function DashboardScreen() {
                         </Text>
                         {tx.fee > 0 && (
                           <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: C.accentDim }}>
-                            <Text style={{ color: C.accent, fontSize: 10, fontWeight: '700' }}>+₱{tx.fee}</Text>
+                            <Text style={{ color: C.accent, fontSize: 10, fontWeight: '700' }}>{tx.type === 'DEBT_PAYMENT' ? 'Extra ' : ''}+₱{tx.fee}</Text>
                           </View>
                         )}
                       </View>
@@ -657,6 +660,9 @@ export default function DashboardScreen() {
                         {getWalletTheme(tx.channel).label} • {new Date(tx.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         {tx.customer_name ? ` • ${tx.customer_name}` : ''}
                         {tx.is_debt === 1 ? ' · Utang' : ''}
+                        {tx.type === 'DEBT_PAYMENT'
+                          ? ` · Initial fee ₱${(tx.contractual_fee_paid || 0).toFixed(2)} · Principal ₱${(tx.principal_paid || 0).toFixed(2)}`
+                          : ''}
                       </Text>
                     </View>
                   </View>
